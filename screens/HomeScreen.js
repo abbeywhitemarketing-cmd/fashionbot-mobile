@@ -49,9 +49,6 @@ async function setCachedOutfit(date, data) {
 function parsePreferences(form) {
   return {
     city: form.city,
-    latitude: parseFloat(form.latitude),
-    longitude: parseFloat(form.longitude),
-    timezone: form.timezone,
     style_keywords: form.style_keywords.split(",").map((s) => s.trim()),
     work_days: form.work_days.split(",").map((s) => parseInt(s.trim())),
     weekend_activities: form.weekend_activities,

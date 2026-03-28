@@ -19,10 +19,7 @@ import {
 } from "../lib/calendar";
 
 const DEFAULTS = {
-  city: "Sydney",
-  latitude: "-33.8688",
-  longitude: "151.2093",
-  timezone: "Australia/Sydney",
+  city: "Sydney, Australia",
   style_keywords: "minimalist, editorial, effortless",
   work_days: "0,1,2,3,4",
   weekend_activities: "markets, brunch, galleries",
@@ -30,10 +27,7 @@ const DEFAULTS = {
 };
 
 const FIELDS = [
-  { label: "City", key: "city" },
-  { label: "Latitude", key: "latitude" },
-  { label: "Longitude", key: "longitude" },
-  { label: "Timezone (e.g. Australia/Sydney)", key: "timezone" },
+  { label: "City (include country for accuracy, e.g. Sydney, Australia)", key: "city" },
   { label: "Style Keywords (comma-separated)", key: "style_keywords" },
   { label: "Work Days (0=Mon, comma-separated)", key: "work_days" },
   { label: "Weekend Activities", key: "weekend_activities" },
