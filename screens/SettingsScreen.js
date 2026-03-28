@@ -1,5 +1,4 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useState } from "react";
 import {
@@ -12,15 +11,12 @@ import {
   View,
 } from "react-native";
 import {
-  GOOGLE_CLIENT_ID,
-  REDIRECT_URI,
-  SCOPES,
   clearTokens,
+  getAuthStartUrl,
   getStoredTokens,
+  pollForTokens,
   storeTokens,
 } from "../lib/calendar";
-
-WebBrowser.maybeCompleteAuthSession();
 
 const DEFAULTS = {
   city: "Sydney",
@@ -48,12 +44,7 @@ export default function SettingsScreen() {
   const [form, setForm] = useState(DEFAULTS);
   const [saved, setSaved] = useState(false);
   const [calendarConnected, setCalendarConnected] = useState(false);
-
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: GOOGLE_CLIENT_ID,
-    redirectUri: REDIRECT_URI,
-    scopes: SCOPES,
-  });
+  const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem("preferences").then((raw) => {
@@ -61,19 +52,6 @@ export default function SettingsScreen() {
     });
     getStoredTokens().then((t) => setCalendarConnected(!!t));
   }, []);
-
-  useEffect(() => {
-    if (response?.type === "success" && response.authentication) {
-      const { accessToken, refreshToken, expiresIn } = response.authentication;
-      storeTokens({
-        access_token: accessToken,
-        refresh_token: refreshToken ?? null,
-        expires_at: Date.now() + (expiresIn ?? 3600) * 1000,
-      }).then(() => setCalendarConnected(true));
-    } else if (response?.type === "error") {
-      Alert.alert("Google sign-in failed", response.error?.message ?? "Unknown error");
-    }
-  }, [response]);
 
   function update(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -83,6 +61,33 @@ export default function SettingsScreen() {
     await AsyncStorage.setItem("preferences", JSON.stringify(form));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function connectCalendar() {
+    setConnecting(true);
+    try {
+      const sessionId = Math.random().toString(36).substring(2, 15);
+
+      // Open the backend OAuth flow in browser
+      await WebBrowser.openBrowserAsync(getAuthStartUrl(sessionId));
+
+      // Browser closed — poll backend for tokens
+      const tokens = await pollForTokens(sessionId);
+      if (tokens) {
+        await storeTokens({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token ?? null,
+          expires_at: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+        });
+        setCalendarConnected(true);
+      } else {
+        Alert.alert("Connection timed out", "Please try again.");
+      }
+    } catch (e) {
+      Alert.alert("Connection failed", e.message);
+    } finally {
+      setConnecting(false);
+    }
   }
 
   async function disconnectCalendar() {
@@ -138,11 +143,11 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.connectBtn, !request && styles.connectBtnDisabled]}
-            onPress={() => promptAsync({ useProxy: true })}
-            disabled={!request}
+            style={[styles.connectBtn, connecting && styles.connectBtnDisabled]}
+            onPress={connectCalendar}
+            disabled={connecting}
           >
-            <Text style={styles.connectText}>Connect</Text>
+            <Text style={styles.connectText}>{connecting ? "..." : "Connect"}</Text>
           </TouchableOpacity>
         )}
       </View>
