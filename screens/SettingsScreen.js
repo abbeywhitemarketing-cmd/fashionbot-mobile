@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Google from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -9,6 +11,16 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import {
+  GOOGLE_CLIENT_ID,
+  REDIRECT_URI,
+  SCOPES,
+  clearTokens,
+  getStoredTokens,
+  storeTokens,
+} from "../lib/calendar";
+
+WebBrowser.maybeCompleteAuthSession();
 
 const DEFAULTS = {
   city: "Sydney",
@@ -21,15 +33,47 @@ const DEFAULTS = {
   nights_out_days: "4,5",
 };
 
+const FIELDS = [
+  { label: "City", key: "city" },
+  { label: "Latitude", key: "latitude" },
+  { label: "Longitude", key: "longitude" },
+  { label: "Timezone (e.g. Australia/Sydney)", key: "timezone" },
+  { label: "Style Keywords (comma-separated)", key: "style_keywords" },
+  { label: "Work Days (0=Mon, comma-separated)", key: "work_days" },
+  { label: "Weekend Activities", key: "weekend_activities" },
+  { label: "Nights Out Days (0=Mon, comma-separated)", key: "nights_out_days" },
+];
+
 export default function SettingsScreen() {
   const [form, setForm] = useState(DEFAULTS);
   const [saved, setSaved] = useState(false);
+  const [calendarConnected, setCalendarConnected] = useState(false);
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: GOOGLE_CLIENT_ID,
+    redirectUri: REDIRECT_URI,
+    scopes: SCOPES,
+  });
 
   useEffect(() => {
     AsyncStorage.getItem("preferences").then((raw) => {
       if (raw) setForm({ ...DEFAULTS, ...JSON.parse(raw) });
     });
+    getStoredTokens().then((t) => setCalendarConnected(!!t));
   }, []);
+
+  useEffect(() => {
+    if (response?.type === "success" && response.authentication) {
+      const { accessToken, refreshToken, expiresIn } = response.authentication;
+      storeTokens({
+        access_token: accessToken,
+        refresh_token: refreshToken ?? null,
+        expires_at: Date.now() + (expiresIn ?? 3600) * 1000,
+      }).then(() => setCalendarConnected(true));
+    } else if (response?.type === "error") {
+      Alert.alert("Google sign-in failed", response.error?.message ?? "Unknown error");
+    }
+  }, [response]);
 
   function update(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -41,20 +85,25 @@ export default function SettingsScreen() {
     setTimeout(() => setSaved(false), 2000);
   }
 
+  async function disconnectCalendar() {
+    Alert.alert("Disconnect Google Calendar", "Are you sure?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Disconnect",
+        style: "destructive",
+        onPress: async () => {
+          await clearTokens();
+          setCalendarConnected(false);
+        },
+      },
+    ]);
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.heading}>Your Style Profile</Text>
 
-      {[
-        { label: "City", key: "city" },
-        { label: "Latitude", key: "latitude" },
-        { label: "Longitude", key: "longitude" },
-        { label: "Timezone (e.g. Australia/Sydney)", key: "timezone" },
-        { label: "Style Keywords (comma-separated)", key: "style_keywords" },
-        { label: "Work Days (0=Mon, comma-separated)", key: "work_days" },
-        { label: "Weekend Activities", key: "weekend_activities" },
-        { label: "Nights Out Days (0=Mon, comma-separated)", key: "nights_out_days" },
-      ].map(({ label, key }) => (
+      {FIELDS.map(({ label, key }) => (
         <View key={key} style={styles.field}>
           <Text style={styles.label}>{label}</Text>
           <TextInput
@@ -69,6 +118,34 @@ export default function SettingsScreen() {
       <TouchableOpacity style={styles.button} onPress={save}>
         <Text style={styles.buttonText}>{saved ? "Saved ✓" : "Save"}</Text>
       </TouchableOpacity>
+
+      {/* Google Calendar */}
+      <View style={styles.divider} />
+      <Text style={styles.sectionHeading}>Integrations</Text>
+
+      <View style={styles.integrationRow}>
+        <View style={styles.integrationInfo}>
+          <Text style={styles.integrationTitle}>Google Calendar</Text>
+          <Text style={styles.integrationDesc}>
+            {calendarConnected
+              ? "Connected — outfit recs will use your schedule"
+              : "See your schedule and add outfits to your calendar"}
+          </Text>
+        </View>
+        {calendarConnected ? (
+          <TouchableOpacity style={styles.disconnectBtn} onPress={disconnectCalendar}>
+            <Text style={styles.disconnectText}>Disconnect</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.connectBtn, !request && styles.connectBtnDisabled]}
+            onPress={() => promptAsync({ useProxy: true })}
+            disabled={!request}
+          >
+            <Text style={styles.connectText}>Connect</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -96,4 +173,36 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+
+  // Integrations
+  divider: { height: 1, backgroundColor: "#ece8e3", marginVertical: 32 },
+  sectionHeading: { fontSize: 16, fontWeight: "700", color: "#1a1a1a", marginBottom: 16 },
+  integrationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#ece8e3",
+  },
+  integrationInfo: { flex: 1, marginRight: 12 },
+  integrationTitle: { fontSize: 15, fontWeight: "600", color: "#1a1a1a", marginBottom: 3 },
+  integrationDesc: { fontSize: 13, color: "#888", lineHeight: 18 },
+  connectBtn: {
+    backgroundColor: "#1a1a1a",
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  connectBtnDisabled: { backgroundColor: "#ccc" },
+  connectText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  disconnectBtn: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  disconnectText: { color: "#888", fontSize: 13, fontWeight: "600" },
 });

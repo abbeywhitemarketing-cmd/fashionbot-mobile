@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Linking,
   RefreshControl,
@@ -12,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { fetchOutfit } from "../lib/api";
+import { createOutfitEvent, fetchEventsForDate, getValidAccessToken } from "../lib/calendar";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -153,6 +155,8 @@ function LookCard({ title, items, mood }) {
 
 function OutfitPage({ state, date, onRefresh }) {
   const { outfit, weather, loading, error, refreshing } = state;
+  const [addingToCalendar, setAddingToCalendar] = useState(false);
+  const [calendarAdded, setCalendarAdded] = useState(false);
 
   if (loading) {
     return (
@@ -248,6 +252,32 @@ function OutfitPage({ state, date, onRefresh }) {
           <Text style={styles.pinterestText}>View Mood Board on Pinterest →</Text>
         </TouchableOpacity>
       )}
+
+      {/* Add to Calendar */}
+      <TouchableOpacity
+        style={[styles.calendarBtn, calendarAdded && styles.calendarBtnDone]}
+        disabled={calendarAdded || addingToCalendar}
+        onPress={async () => {
+          setAddingToCalendar(true);
+          try {
+            const token = await getValidAccessToken();
+            if (!token) {
+              Alert.alert("Not connected", "Connect Google Calendar in Settings first.");
+              return;
+            }
+            await createOutfitEvent(token, date, outfit);
+            setCalendarAdded(true);
+          } catch (e) {
+            Alert.alert("Couldn't add to calendar", e.message);
+          } finally {
+            setAddingToCalendar(false);
+          }
+        }}
+      >
+        <Text style={[styles.calendarBtnText, calendarAdded && styles.calendarBtnTextDone]}>
+          {calendarAdded ? "Added to Calendar ✓" : addingToCalendar ? "Adding..." : "Add to Calendar"}
+        </Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -295,7 +325,9 @@ export default function HomeScreen() {
       }
 
       const prefs = parsePreferences(JSON.parse(raw));
-      const data = await fetchOutfit(date, prefs);
+      const token = await getValidAccessToken();
+      const calendarEvents = token ? await fetchEventsForDate(token, date).catch(() => []) : [];
+      const data = await fetchOutfit(date, prefs, calendarEvents);
       const parsed = { outfit: parseOutfit(data.suggestions), weather: data.weather };
 
       setState({ outfit: parsed.outfit, weather: parsed.weather, loading: false, error: null, refreshing: false });
@@ -475,6 +507,20 @@ const styles = StyleSheet.create({
   tipRow: { flexDirection: "row", marginBottom: 10 },
   tipArrow: { fontSize: 14, color: "#c9b99a", marginRight: 8, lineHeight: 22 },
   tipText: { flex: 1, fontSize: 14, color: "#2a2a2a", lineHeight: 22 },
+
+  // Calendar
+  calendarBtn: {
+    marginTop: 10,
+    padding: 15,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#1a1a1a",
+  },
+  calendarBtnDone: { borderColor: "#aaa", backgroundColor: "#f9f9f9" },
+  calendarBtnText: { color: "#1a1a1a", fontWeight: "600", fontSize: 14 },
+  calendarBtnTextDone: { color: "#aaa" },
 
   // Pinterest
   pinterestBtn: {
