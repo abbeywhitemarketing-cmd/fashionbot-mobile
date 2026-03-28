@@ -19,7 +19,6 @@ function parsePreferences(form) {
     latitude: parseFloat(form.latitude),
     longitude: parseFloat(form.longitude),
     timezone: form.timezone,
-    color_palette: form.color_palette.split(",").map((s) => s.trim()),
     style_keywords: form.style_keywords.split(",").map((s) => s.trim()),
     work_days: form.work_days.split(",").map((s) => parseInt(s.trim())),
     weekend_activities: form.weekend_activities,
@@ -64,7 +63,10 @@ function parseOutfit(text) {
     } else if (line.startsWith("Formula:")) {
       result.formula = line.replace("Formula:", "").trim();
     } else if (line.startsWith("Palette:")) {
-      result.palette = line.replace("Palette:", "").trim().split("·").map((s) => s.trim());
+      result.palette = line.replace("Palette:", "").trim().split("·").map((s) => {
+        const match = s.trim().match(/^(.*?)\s*(#[0-9A-Fa-f]{6})\s*$/);
+        return match ? { name: match[1].trim(), hex: match[2] } : { name: s.trim(), hex: null };
+      });
     } else if (line === "Primary Look") {
       if (section === "alt" && lookLines.length) result.alternativeLook = lookLines;
       section = "primary";
@@ -221,7 +223,8 @@ export default function HomeScreen() {
         <View style={styles.paletteRow}>
           {outfit.palette.map((colour, i) => (
             <View key={i} style={styles.paletteChip}>
-              <Text style={styles.paletteChipText}>{colour}</Text>
+              {colour.hex && <View style={[styles.paletteSwatch, { backgroundColor: colour.hex }]} />}
+              <Text style={styles.paletteChipText}>{colour.name}</Text>
             </View>
           ))}
         </View>
@@ -294,12 +297,22 @@ const styles = StyleSheet.create({
   // Palette
   paletteRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 20 },
   paletteChip: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#e0dbd5",
     borderRadius: 20,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 5,
+    gap: 6,
+  },
+  paletteSwatch: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 0.5,
+    borderColor: "rgba(0,0,0,0.1)",
   },
   paletteChipText: { fontSize: 12, color: "#555" },
 
