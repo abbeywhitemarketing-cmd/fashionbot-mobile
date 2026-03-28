@@ -1,7 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   Linking,
   RefreshControl,
   ScrollView,
@@ -12,6 +13,36 @@ import {
 } from "react-native";
 import { fetchOutfit } from "../lib/api";
 
+const SCREEN_WIDTH = Dimensions.get("window").width;
+
+function today() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function tomorrow() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split("T")[0];
+}
+
+function formatDate(str) {
+  const d = new Date(str + "T12:00:00");
+  return d.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" });
+}
+
+function formatDateShort(str) {
+  const d = new Date(str + "T12:00:00");
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+}
+
+async function getCachedOutfit(date) {
+  const raw = await AsyncStorage.getItem(`outfit_${date}`);
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function setCachedOutfit(date, data) {
+  await AsyncStorage.setItem(`outfit_${date}`, JSON.stringify(data));
+}
 
 function parsePreferences(form) {
   return {
@@ -24,15 +55,6 @@ function parsePreferences(form) {
     weekend_activities: form.weekend_activities,
     nights_out_days: form.nights_out_days.split(",").map((s) => parseInt(s.trim())),
   };
-}
-
-function today() {
-  return new Date().toISOString().split("T")[0];
-}
-
-function formatDate(str) {
-  const d = new Date(str + "T12:00:00");
-  return d.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" });
 }
 
 function parseOutfit(text) {
@@ -48,7 +70,6 @@ function parseOutfit(text) {
     pinterestUrl: null,
   };
 
-  // Extract Pinterest URL
   const urlMatch = text.match(/https:\/\/www\.pinterest\.com\S+/);
   if (urlMatch) result.pinterestUrl = urlMatch[0];
 
@@ -92,7 +113,6 @@ function parseOutfit(text) {
     }
   }
 
-  // Catch dangling look lines
   if (section === "alt" && lookLines.length && !result.alternativeLook) {
     result.alternativeLook = lookLines;
   }
@@ -131,40 +151,12 @@ function LookCard({ title, items, mood }) {
   );
 }
 
-export default function HomeScreen() {
-  const [outfit, setOutfit] = useState(null);
-  const [weather, setWeather] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
-
-  async function load(isRefresh = false) {
-    isRefresh ? setRefreshing(true) : setLoading(true);
-    setError(null);
-
-    try {
-      const raw = await AsyncStorage.getItem("preferences");
-      if (!raw) {
-        setError("No preferences set — go to Settings first.");
-        return;
-      }
-      const prefs = parsePreferences(JSON.parse(raw));
-      const data = await fetchOutfit(today(), prefs);
-      setOutfit(parseOutfit(data.suggestions));
-      setWeather(data.weather);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
+function OutfitPage({ state, date, onRefresh }) {
+  const { outfit, weather, loading, error, refreshing } = state;
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.page, styles.center]}>
         <ActivityIndicator size="large" color="#1a1a1a" />
         <Text style={styles.loadingText}>Styling your day...</Text>
       </View>
@@ -173,22 +165,22 @@ export default function HomeScreen() {
 
   if (error) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.page, styles.center]}>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={() => load()}>
+        <TouchableOpacity style={styles.retryBtn} onPress={onRefresh}>
           <Text style={styles.retryText}>Try Again</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  if (!outfit) return null;
+  if (!outfit) return <View style={styles.page} />;
 
   return (
     <ScrollView
-      style={styles.container}
+      style={styles.page}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1a1a1a" />}
     >
       {/* Date + Weather */}
       {weather && (
@@ -198,7 +190,7 @@ export default function HomeScreen() {
             <Text style={styles.weatherDesc}>{weather.weather_description}</Text>
             <Text style={styles.weatherTemp}>{Math.round(weather.temp_min)}–{Math.round(weather.temp_max)}°C</Text>
           </View>
-          <Text style={styles.dateText}>{formatDate(today())}</Text>
+          <Text style={styles.dateText}>{formatDate(date)}</Text>
         </View>
       )}
 
@@ -260,10 +252,142 @@ export default function HomeScreen() {
   );
 }
 
+const EMPTY_STATE = { outfit: null, weather: null, loading: false, error: null, refreshing: false };
+
+export default function HomeScreen() {
+  const scrollRef = useRef(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const todayDate = today();
+  const tomorrowDate = tomorrow();
+
+  const [todayState, setTodayState] = useState(EMPTY_STATE);
+  const [tomorrowState, setTomorrowState] = useState(EMPTY_STATE);
+
+  useEffect(() => {
+    loadForDate(todayDate, setTodayState, false);
+    loadForDate(tomorrowDate, setTomorrowState, false);
+  }, []);
+
+  // Default to tomorrow page on first render
+  useEffect(() => {
+    const t = setTimeout(() => {
+      scrollRef.current?.scrollTo({ x: SCREEN_WIDTH, animated: false });
+    }, 50);
+    return () => clearTimeout(t);
+  }, []);
+
+  async function loadForDate(date, setState, isRefresh) {
+    setState((prev) => ({ ...prev, [isRefresh ? "refreshing" : "loading"]: true, error: null }));
+
+    try {
+      if (!isRefresh) {
+        const cached = await getCachedOutfit(date);
+        if (cached) {
+          setState({ outfit: cached.outfit, weather: cached.weather, loading: false, error: null, refreshing: false });
+          return;
+        }
+      }
+
+      const raw = await AsyncStorage.getItem("preferences");
+      if (!raw) {
+        setState({ ...EMPTY_STATE, error: "No preferences set — go to Settings first." });
+        return;
+      }
+
+      const prefs = parsePreferences(JSON.parse(raw));
+      const data = await fetchOutfit(date, prefs);
+      const parsed = { outfit: parseOutfit(data.suggestions), weather: data.weather };
+
+      setState({ outfit: parsed.outfit, weather: parsed.weather, loading: false, error: null, refreshing: false });
+      await setCachedOutfit(date, parsed);
+    } catch (e) {
+      setState((prev) => ({ ...prev, loading: false, refreshing: false, error: e.message }));
+    }
+  }
+
+  function goToPage(page) {
+    scrollRef.current?.scrollTo({ x: page * SCREEN_WIDTH, animated: true });
+    setCurrentPage(page);
+  }
+
+  return (
+    <View style={styles.container}>
+      {/* Tab bar */}
+      <View style={styles.tabBar}>
+        <TouchableOpacity style={styles.tab} onPress={() => goToPage(0)}>
+          <Text style={[styles.tabLabel, currentPage === 0 && styles.tabLabelActive]}>Today</Text>
+          <Text style={[styles.tabDate, currentPage === 0 && styles.tabDateActive]}>{formatDateShort(todayDate)}</Text>
+          {currentPage === 0 && <View style={styles.tabUnderline} />}
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tab} onPress={() => goToPage(1)}>
+          <Text style={[styles.tabLabel, currentPage === 1 && styles.tabLabelActive]}>Tomorrow</Text>
+          <Text style={[styles.tabDate, currentPage === 1 && styles.tabDateActive]}>{formatDateShort(tomorrowDate)}</Text>
+          {currentPage === 1 && <View style={styles.tabUnderline} />}
+        </TouchableOpacity>
+      </View>
+
+      {/* Horizontal pager */}
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={(e) => {
+          const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+          setCurrentPage(page);
+        }}
+        style={{ flex: 1 }}
+      >
+        <OutfitPage
+          state={todayState}
+          date={todayDate}
+          onRefresh={() => loadForDate(todayDate, setTodayState, true)}
+        />
+        <OutfitPage
+          state={tomorrowState}
+          date={tomorrowDate}
+          onRefresh={() => loadForDate(tomorrowDate, setTomorrowState, true)}
+        />
+      </ScrollView>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FAF8F5" },
+
+  // Tab bar
+  tabBar: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#ece8e3",
+    backgroundColor: "#FAF8F5",
+  },
+  tab: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 12,
+    position: "relative",
+  },
+  tabLabel: { fontSize: 14, fontWeight: "600", color: "#bbb" },
+  tabLabelActive: { color: "#1a1a1a" },
+  tabDate: { fontSize: 11, color: "#ccc", marginTop: 2 },
+  tabDateActive: { color: "#888" },
+  tabUnderline: {
+    position: "absolute",
+    bottom: 0,
+    left: 20,
+    right: 20,
+    height: 2,
+    backgroundColor: "#1a1a1a",
+    borderRadius: 1,
+  },
+
+  // Pages
+  page: { width: SCREEN_WIDTH, flex: 1, backgroundColor: "#FAF8F5" },
   content: { padding: 20, paddingBottom: 60 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, backgroundColor: "#FAF8F5" },
+  center: { justifyContent: "center", alignItems: "center", padding: 24 },
   loadingText: { marginTop: 16, color: "#888", fontSize: 15, letterSpacing: 0.3 },
   errorText: { color: "#c0392b", fontSize: 15, textAlign: "center", marginBottom: 16 },
   retryBtn: { backgroundColor: "#1a1a1a", paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
