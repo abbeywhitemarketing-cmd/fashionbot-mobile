@@ -18,6 +18,37 @@ import {
   storeTokens,
 } from "../lib/calendar";
 
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function DayPicker({ value, onChange }) {
+  const selected = value
+    ? value.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n))
+    : [];
+
+  function toggle(index) {
+    const next = selected.includes(index)
+      ? selected.filter((d) => d !== index)
+      : [...selected, index].sort((a, b) => a - b);
+    onChange(next.join(","));
+  }
+
+  return (
+    <View style={styles.dayRow}>
+      {DAYS.map((day, index) => (
+        <TouchableOpacity
+          key={index}
+          style={[styles.dayChip, selected.includes(index) && styles.dayChipSelected]}
+          onPress={() => toggle(index)}
+        >
+          <Text style={[styles.dayChipText, selected.includes(index) && styles.dayChipTextSelected]}>
+            {day}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 const DEFAULTS = {
   city: "Sydney, Australia",
   style_keywords: "minimalist, editorial, effortless",
@@ -26,12 +57,10 @@ const DEFAULTS = {
   nights_out_days: "4,5",
 };
 
-const FIELDS = [
+const TEXT_FIELDS = [
   { label: "City (include country for accuracy, e.g. Sydney, Australia)", key: "city" },
   { label: "Style Keywords (comma-separated)", key: "style_keywords" },
-  { label: "Work Days (0=Mon, comma-separated)", key: "work_days" },
   { label: "Weekend Activities", key: "weekend_activities" },
-  { label: "Nights Out Days (0=Mon, comma-separated)", key: "nights_out_days" },
 ];
 
 export default function SettingsScreen() {
@@ -61,11 +90,7 @@ export default function SettingsScreen() {
     setConnecting(true);
     try {
       const sessionId = Math.random().toString(36).substring(2, 15);
-
-      // Open the backend OAuth flow in browser
       await WebBrowser.openBrowserAsync(getAuthStartUrl(sessionId));
-
-      // Browser closed — poll backend for tokens
       const tokens = await pollForTokens(sessionId);
       if (tokens) {
         await storeTokens({
@@ -102,7 +127,7 @@ export default function SettingsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.heading}>Your Style Profile</Text>
 
-      {FIELDS.map(({ label, key }) => (
+      {TEXT_FIELDS.map(({ label, key }) => (
         <View key={key} style={styles.field}>
           <Text style={styles.label}>{label}</Text>
           <TextInput
@@ -113,6 +138,16 @@ export default function SettingsScreen() {
           />
         </View>
       ))}
+
+      <View style={styles.field}>
+        <Text style={styles.label}>Work Days (office attire required)</Text>
+        <DayPicker value={form.work_days} onChange={(v) => update("work_days", v)} />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>Nights Out</Text>
+        <DayPicker value={form.nights_out_days} onChange={(v) => update("nights_out_days", v)} />
+      </View>
 
       <TouchableOpacity style={styles.button} onPress={save}>
         <Text style={styles.buttonText}>{saved ? "Saved ✓" : "Save"}</Text>
@@ -153,8 +188,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FAF8F5" },
   content: { padding: 24, paddingBottom: 60 },
   heading: { fontSize: 22, fontWeight: "700", marginBottom: 24, color: "#1a1a1a" },
-  field: { marginBottom: 18 },
-  label: { fontSize: 13, color: "#666", marginBottom: 6, fontWeight: "500" },
+  field: { marginBottom: 20 },
+  label: { fontSize: 13, color: "#666", marginBottom: 8, fontWeight: "500" },
   input: {
     borderWidth: 1,
     borderColor: "#ddd",
@@ -164,6 +199,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     color: "#1a1a1a",
   },
+
+  // Day picker
+  dayRow: { flexDirection: "row", gap: 6 },
+  dayChip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    backgroundColor: "#fff",
+    alignItems: "center",
+  },
+  dayChipSelected: { backgroundColor: "#1a1a1a", borderColor: "#1a1a1a" },
+  dayChipText: { fontSize: 12, fontWeight: "600", color: "#999" },
+  dayChipTextSelected: { color: "#fff" },
+
   button: {
     backgroundColor: "#1a1a1a",
     padding: 16,
