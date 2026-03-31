@@ -17,6 +17,13 @@ import {
   pollForTokens,
   storeTokens,
 } from "../lib/calendar";
+import {
+  cancelDailyOutfitReminder,
+  getNotificationPermissionStatus,
+  getScheduledReminder,
+  requestNotificationPermission,
+  scheduleDailyOutfitReminder,
+} from "../lib/notifications";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -55,6 +62,7 @@ const DEFAULTS = {
   work_days: "0,1,2,3,4",
   weekend_activities: "markets, brunch, galleries",
   nights_out_days: "4,5",
+  special_instructions: "",
 };
 
 const TEXT_FIELDS = [
@@ -63,17 +71,30 @@ const TEXT_FIELDS = [
   { label: "Weekend Activities", key: "weekend_activities" },
 ];
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ navigation }) {
   const [form, setForm] = useState(DEFAULTS);
   const [saved, setSaved] = useState(false);
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [notificationsOn, setNotificationsOn] = useState(false);
+  const [notifyHour, setNotifyHour] = useState(19);
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeySaved, setApiKeySaved] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem("preferences").then((raw) => {
       if (raw) setForm({ ...DEFAULTS, ...JSON.parse(raw) });
     });
+    AsyncStorage.getItem("claude_api_key").then((k) => {
+      if (k) setApiKey(k);
+    });
     getStoredTokens().then((t) => setCalendarConnected(!!t));
+    getScheduledReminder().then((r) => {
+      if (r) {
+        setNotificationsOn(true);
+        setNotifyHour(r.trigger?.hour ?? 19);
+      }
+    });
   }, []);
 
   function update(key, value) {
@@ -84,6 +105,22 @@ export default function SettingsScreen() {
     await AsyncStorage.setItem("preferences", JSON.stringify(form));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function saveApiKey() {
+    const trimmed = apiKey.trim();
+    if (trimmed && !trimmed.startsWith("sk-ant-")) {
+      Alert.alert("Invalid key", "Your Claude API key should start with sk-ant-");
+      return;
+    }
+    if (trimmed) {
+      await AsyncStorage.setItem("claude_api_key", trimmed);
+    } else {
+      await AsyncStorage.removeItem("claude_api_key");
+    }
+    setApiKeySaved(true);
+    setTimeout(() => setApiKeySaved(false), 2000);
+    if (trimmed) navigation.navigate("Home");
   }
 
   async function connectCalendar() {
@@ -149,8 +186,48 @@ export default function SettingsScreen() {
         <DayPicker value={form.nights_out_days} onChange={(v) => update("nights_out_days", v)} />
       </View>
 
+      <View style={styles.field}>
+        <Text style={styles.label}>Special Instructions</Text>
+        <Text style={styles.hint}>
+          Add anything that shapes your style — items you avoid, colour seasons, capsule wardrobe pieces, or brands you love. Style and outfit context only.
+        </Text>
+        <TextInput
+          style={[styles.input, styles.inputMultiline]}
+          value={form.special_instructions}
+          onChangeText={(v) => update("special_instructions", v.slice(0, 300))}
+          placeholder="e.g. I never wear orange, I'm a cool-toned winter, I only wear flats"
+          placeholderTextColor="#bbb"
+          multiline
+          numberOfLines={4}
+          autoCapitalize="sentences"
+        />
+        <Text style={styles.charCount}>{(form.special_instructions || "").length}/300</Text>
+      </View>
+
       <TouchableOpacity style={styles.button} onPress={save}>
         <Text style={styles.buttonText}>{saved ? "Saved ✓" : "Save"}</Text>
+      </TouchableOpacity>
+
+      {/* Claude API Key */}
+      <View style={styles.divider} />
+      <Text style={styles.sectionHeading}>Claude API Key</Text>
+      <Text style={styles.hint}>
+        Add your own Anthropic API key to use Fashion Bot for free. Get yours at console.anthropic.com.
+      </Text>
+      <View style={styles.field}>
+        <TextInput
+          style={styles.input}
+          value={apiKey}
+          onChangeText={setApiKey}
+          placeholder="sk-ant-..."
+          placeholderTextColor="#bbb"
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry={false}
+        />
+      </View>
+      <TouchableOpacity style={styles.button} onPress={saveApiKey}>
+        <Text style={styles.buttonText}>{apiKeySaved ? "Saved ✓" : "Save API Key"}</Text>
       </TouchableOpacity>
 
       {/* Google Calendar */}
@@ -180,6 +257,67 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Notifications */}
+      <View style={styles.divider} />
+      <Text style={styles.sectionHeading}>Daily Reminder</Text>
+      <View style={styles.integrationRow}>
+        <View style={styles.integrationInfo}>
+          <Text style={styles.integrationTitle}>Outfit Reminder</Text>
+          <Text style={styles.integrationDesc}>
+            {notificationsOn
+              ? `Reminds you every day at ${notifyHour}:00`
+              : "Get a daily nudge to check tomorrow's outfit"}
+          </Text>
+        </View>
+        {notificationsOn ? (
+          <TouchableOpacity
+            style={styles.disconnectBtn}
+            onPress={async () => {
+              await cancelDailyOutfitReminder();
+              setNotificationsOn(false);
+            }}
+          >
+            <Text style={styles.disconnectText}>Turn Off</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.connectBtn}
+            onPress={async () => {
+              const granted = await requestNotificationPermission();
+              if (!granted) {
+                Alert.alert("Permission needed", "Enable notifications in your iPhone Settings to use this feature.");
+                return;
+              }
+              await scheduleDailyOutfitReminder(notifyHour, 0);
+              setNotificationsOn(true);
+            }}
+          >
+            <Text style={styles.connectText}>Turn On</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      {notificationsOn && (
+        <View style={styles.timeRow}>
+          <Text style={styles.timeLabel}>Reminder time</Text>
+          <View style={styles.timeButtons}>
+            {[7, 8, 9, 17, 18, 19, 20, 21].map((h) => (
+              <TouchableOpacity
+                key={h}
+                style={[styles.timeChip, notifyHour === h && styles.timeChipSelected]}
+                onPress={async () => {
+                  setNotifyHour(h);
+                  await scheduleDailyOutfitReminder(h, 0);
+                }}
+              >
+                <Text style={[styles.timeChipText, notifyHour === h && styles.timeChipTextSelected]}>
+                  {h}:00
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -198,6 +336,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
     backgroundColor: "#fff",
     color: "#1a1a1a",
+  },
+  inputMultiline: {
+    height: 100,
+    textAlignVertical: "top",
+  },
+  hint: {
+    fontSize: 12,
+    color: "#aaa",
+    marginBottom: 8,
+    lineHeight: 17,
+  },
+  charCount: {
+    fontSize: 11,
+    color: "#ccc",
+    textAlign: "right",
+    marginTop: 4,
   },
 
   // Day picker
@@ -255,4 +409,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   disconnectText: { color: "#888", fontSize: 13, fontWeight: "600" },
+
+  timeRow: { marginTop: 12 },
+  timeLabel: { fontSize: 13, color: "#666", fontWeight: "500", marginBottom: 8 },
+  timeButtons: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  timeChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    backgroundColor: "#fff",
+  },
+  timeChipSelected: { backgroundColor: "#1a1a1a", borderColor: "#1a1a1a" },
+  timeChipText: { fontSize: 13, fontWeight: "600", color: "#999" },
+  timeChipTextSelected: { color: "#fff" },
 });

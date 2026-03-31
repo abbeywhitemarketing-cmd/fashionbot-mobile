@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { fetchOutfit } from "../lib/api";
+import { fetchOutfit, fetchOutfitWithKey } from "../lib/api";
 import { createOutfitEvent, fetchEventsForDate, getValidAccessToken } from "../lib/calendar";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -53,6 +53,7 @@ function parsePreferences(form) {
     work_days: form.work_days.split(",").map((s) => parseInt(s.trim())),
     weekend_activities: form.weekend_activities,
     nights_out_days: form.nights_out_days.split(",").map((s) => parseInt(s.trim())),
+    special_instructions: form.special_instructions || "",
   };
 }
 
@@ -120,14 +121,13 @@ function parseOutfit(text) {
 }
 
 function WeatherIcon({ code }) {
-  if (code === 0 || code === 1) return <Text style={styles.weatherIcon}>☀️</Text>;
-  if (code === 2 || code === 3) return <Text style={styles.weatherIcon}>⛅</Text>;
-  if (code >= 45 && code <= 48) return <Text style={styles.weatherIcon}>🌫️</Text>;
-  if (code >= 51 && code <= 67) return <Text style={styles.weatherIcon}>🌧️</Text>;
-  if (code >= 71 && code <= 77) return <Text style={styles.weatherIcon}>❄️</Text>;
-  if (code >= 80 && code <= 82) return <Text style={styles.weatherIcon}>🌦️</Text>;
-  if (code >= 95) return <Text style={styles.weatherIcon}>⛈️</Text>;
-  return <Text style={styles.weatherIcon}>🌤️</Text>;
+  if (code === 0 || code === 1) return "☀️";
+  if (code === 2 || code === 3) return "⛅";
+  if (code >= 45 && code <= 48) return "🌫️";
+  if (code >= 71 && code <= 77) return "❄️";
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return "🌧️";
+  if (code >= 95) return "⛈️";
+  return "🌤️";
 }
 
 function LookCard({ title, items, mood }) {
@@ -150,7 +150,7 @@ function LookCard({ title, items, mood }) {
   );
 }
 
-function OutfitPage({ state, date, onRefresh }) {
+function OutfitPage({ state, date, onRefresh, navigation }) {
   const { outfit, weather, loading, error, refreshing } = state;
   const [addingToCalendar, setAddingToCalendar] = useState(false);
   const [calendarAdded, setCalendarAdded] = useState(false);
@@ -183,15 +183,12 @@ function OutfitPage({ state, date, onRefresh }) {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1a1a1a" />}
     >
-      {/* Date + Weather */}
+      {/* Weather */}
       {weather && (
-        <View style={styles.weatherRow}>
-          <WeatherIcon code={weather.weather_code} />
-          <View style={styles.weatherInfo}>
-            <Text style={styles.weatherDesc}>{weather.weather_description}</Text>
-            <Text style={styles.weatherTemp}>{Math.round(weather.temp_min)}–{Math.round(weather.temp_max)}°C</Text>
-          </View>
-          <Text style={styles.dateText}>{formatDate(date)}</Text>
+        <View style={styles.weatherPill}>
+          <Text style={styles.weatherIcon}>{WeatherIcon({ code: weather.weather_code })}</Text>
+          <Text style={styles.weatherTemp}>{Math.round(weather.temp_min)}–{Math.round(weather.temp_max)}°C</Text>
+          <Text style={styles.weatherDesc}>{weather.weather_description}</Text>
         </View>
       )}
 
@@ -205,10 +202,7 @@ function OutfitPage({ state, date, onRefresh }) {
 
       {/* Formula */}
       {outfit.formula && (
-        <View style={styles.formulaBlock}>
-          <Text style={styles.formulaLabel}>Formula</Text>
-          <Text style={styles.formulaText}>{outfit.formula}</Text>
-        </View>
+        <Text style={styles.formulaText}>{outfit.formula}</Text>
       )}
 
       {/* Palette */}
@@ -275,13 +269,17 @@ function OutfitPage({ state, date, onRefresh }) {
           {calendarAdded ? "Added to Calendar ✓" : addingToCalendar ? "Adding..." : "Add to Calendar"}
         </Text>
       </TouchableOpacity>
+
+      <TouchableOpacity style={styles.historyBtn} onPress={() => navigation.navigate("History")}>
+        <Text style={styles.historyBtnText}>See outfit history →</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
 
 const EMPTY_STATE = { outfit: null, weather: null, loading: false, error: null, refreshing: false };
 
-export default function HomeScreen() {
+export default function HomeScreen({ navigation }) {
   const scrollRef = useRef(null);
   const [currentPage, setCurrentPage] = useState(1);
   const todayDate = today();
@@ -291,8 +289,14 @@ export default function HomeScreen() {
   const [tomorrowState, setTomorrowState] = useState(EMPTY_STATE);
 
   useEffect(() => {
-    loadForDate(todayDate, setTodayState, false);
-    loadForDate(tomorrowDate, setTomorrowState, false);
+    AsyncStorage.getItem("claude_api_key").then((key) => {
+      if (!key) {
+        navigation.navigate("Paywall");
+        return;
+      }
+      loadForDate(todayDate, setTodayState, false);
+      loadForDate(tomorrowDate, setTomorrowState, false);
+    });
   }, []);
 
   // Default to tomorrow page on first render
@@ -324,7 +328,10 @@ export default function HomeScreen() {
       const prefs = parsePreferences(JSON.parse(raw));
       const token = await getValidAccessToken();
       const calendarEvents = token ? await fetchEventsForDate(token, date).catch(() => []) : [];
-      const data = await fetchOutfit(date, prefs, calendarEvents);
+      const apiKey = await AsyncStorage.getItem("claude_api_key");
+      const data = apiKey
+        ? await fetchOutfitWithKey(date, prefs, calendarEvents, apiKey)
+        : await fetchOutfit(date, prefs, calendarEvents);
       const parsed = { outfit: parseOutfit(data.suggestions), weather: data.weather };
 
       setState({ outfit: parsed.outfit, weather: parsed.weather, loading: false, error: null, refreshing: false });
@@ -344,13 +351,15 @@ export default function HomeScreen() {
       {/* Tab bar */}
       <View style={styles.tabBar}>
         <TouchableOpacity style={styles.tab} onPress={() => goToPage(0)}>
-          <Text style={[styles.tabLabel, currentPage === 0 && styles.tabLabelActive]}>Today</Text>
-          <Text style={[styles.tabDate, currentPage === 0 && styles.tabDateActive]}>{formatDateShort(todayDate)}</Text>
+          <Text style={[styles.tabLabel, currentPage === 0 && styles.tabLabelActive]}>
+            Today <Text style={[styles.tabDate, currentPage === 0 && styles.tabDateActive]}>{formatDateShort(todayDate)}</Text>
+          </Text>
           {currentPage === 0 && <View style={styles.tabUnderline} />}
         </TouchableOpacity>
         <TouchableOpacity style={styles.tab} onPress={() => goToPage(1)}>
-          <Text style={[styles.tabLabel, currentPage === 1 && styles.tabLabelActive]}>Tomorrow</Text>
-          <Text style={[styles.tabDate, currentPage === 1 && styles.tabDateActive]}>{formatDateShort(tomorrowDate)}</Text>
+          <Text style={[styles.tabLabel, currentPage === 1 && styles.tabLabelActive]}>
+            Tomorrow <Text style={[styles.tabDate, currentPage === 1 && styles.tabDateActive]}>{formatDateShort(tomorrowDate)}</Text>
+          </Text>
           {currentPage === 1 && <View style={styles.tabUnderline} />}
         </TouchableOpacity>
       </View>
@@ -372,11 +381,13 @@ export default function HomeScreen() {
           state={todayState}
           date={todayDate}
           onRefresh={() => loadForDate(todayDate, setTodayState, true)}
+          navigation={navigation}
         />
         <OutfitPage
           state={tomorrowState}
           date={tomorrowDate}
           onRefresh={() => loadForDate(tomorrowDate, setTomorrowState, true)}
+          navigation={navigation}
         />
       </ScrollView>
     </View>
@@ -390,19 +401,19 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: "#ece8e3",
-    backgroundColor: "#FAF8F5",
+    borderBottomColor: "#e0d5c8",
+    backgroundColor: "#F2EAE0",
   },
   tab: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 12,
+    paddingVertical: 10,
     position: "relative",
   },
-  tabLabel: { fontSize: 14, fontWeight: "600", color: "#bbb" },
-  tabLabelActive: { color: "#1a1a1a" },
-  tabDate: { fontSize: 11, color: "#ccc", marginTop: 2 },
-  tabDateActive: { color: "#888" },
+  tabLabel: { fontSize: 14, fontWeight: "600", color: "#B89880" },
+  tabLabelActive: { color: "#6B3A2A" },
+  tabDate: { fontSize: 11, color: "#C4A898" },
+  tabDateActive: { color: "#9B5A45" },
   tabUnderline: {
     position: "absolute",
     bottom: 0,
@@ -423,29 +434,28 @@ const styles = StyleSheet.create({
   retryText: { color: "#fff", fontWeight: "600" },
 
   // Weather
-  weatherRow: {
+  weatherPill: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 24,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#ece8e3",
+    alignSelf: "flex-start",
+    gap: 6,
+    backgroundColor: "#F2EAE0",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 20,
   },
-  weatherIcon: { fontSize: 26, marginRight: 10 },
-  weatherInfo: { flex: 1 },
-  weatherDesc: { fontSize: 13, color: "#555", fontWeight: "500" },
-  weatherTemp: { fontSize: 13, color: "#999", marginTop: 1 },
-  dateText: { fontSize: 12, color: "#aaa", textAlign: "right", maxWidth: 110 },
+  weatherIcon: { fontSize: 14 },
+  weatherTemp: { fontSize: 13, fontWeight: "700", color: "#6B3A2A" },
+  weatherDesc: { fontSize: 12, color: "#9B5A45" },
 
   // Challenge
-  challengeBlock: { marginBottom: 6 },
-  challengeLabel: { fontSize: 11, fontWeight: "600", color: "#aaa", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 },
-  challengeName: { fontSize: 24, fontWeight: "700", color: "#1a1a1a", lineHeight: 30 },
+  challengeBlock: { marginBottom: 14 },
+  challengeLabel: { fontSize: 11, fontWeight: "600", color: "#aaa", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 },
+  challengeName: { fontSize: 24, fontWeight: "700", color: "#1a1a1a", lineHeight: 32 },
 
   // Formula
-  formulaBlock: { marginTop: 14, marginBottom: 10 },
-  formulaLabel: { fontSize: 11, fontWeight: "600", color: "#aaa", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 },
-  formulaText: { fontSize: 14, color: "#555", lineHeight: 20 },
+  formulaText: { fontSize: 14, color: "#888", lineHeight: 22, marginBottom: 20, fontStyle: "italic" },
 
   // Palette
   paletteRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 20 },
@@ -518,6 +528,10 @@ const styles = StyleSheet.create({
   calendarBtnDone: { borderColor: "#aaa", backgroundColor: "#f9f9f9" },
   calendarBtnText: { color: "#1a1a1a", fontWeight: "600", fontSize: 14 },
   calendarBtnTextDone: { color: "#aaa" },
+
+  // History
+  historyBtn: { alignItems: "center", paddingVertical: 16 },
+  historyBtnText: { fontSize: 13, color: "#C9846A", fontWeight: "600" },
 
   // Pinterest
   pinterestBtn: {
