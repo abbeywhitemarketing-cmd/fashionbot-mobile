@@ -1,8 +1,10 @@
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
-import { Text, TouchableOpacity, View } from "react-native";
+import { useEffect } from "react";
+import { Image, TouchableOpacity } from "react-native";
+import Purchases from "react-native-purchases";
 import HomeScreen from "./screens/HomeScreen";
 import HistoryScreen from "./screens/HistoryScreen";
 import PaywallScreen from "./screens/PaywallScreen";
@@ -12,26 +14,26 @@ const Stack = createNativeStackNavigator();
 
 function BrandTitle() {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      <MaterialCommunityIcons name="robot-outline" size={22} color="#FAF8F5" style={{ marginTop: -4 }} />
-      <Text style={{ fontSize: 15, fontWeight: "800", color: "#FAF8F5", letterSpacing: 6, textTransform: "uppercase" }}>
-        Fashion Bot
-      </Text>
-    </View>
+    <Image source={require("./assets/Logos/Transparent Logos/Inline header FB Txt.png")} style={{ height: 32, width: 200, marginLeft: -46 }} resizeMode="contain" />
   );
 }
 
 const HEADER_OPTS = {
-  headerStyle: { backgroundColor: "#C9846A" },
+  headerStyle: { backgroundColor: "#FFFFFF" },
   headerShadowVisible: false,
-  headerTintColor: "#FAF8F5",
+  headerTintColor: "#1a1a1a",
   contentStyle: { backgroundColor: "#FAF8F5" },
+  headerLeftContainerStyle: { paddingLeft: 0 },
 };
 
 export default function App() {
+  useEffect(() => {
+    Purchases.configure({ apiKey: "appl_qQpZPVYzRtQPaPMRzQSSrBTMLBa" });
+  }, []);
+
   return (
     <NavigationContainer>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <Stack.Navigator screenOptions={HEADER_OPTS}>
         <Stack.Screen
           name="Home"
@@ -41,7 +43,7 @@ export default function App() {
             headerLeft: () => <BrandTitle />,
             headerRight: () => (
               <TouchableOpacity onPress={() => navigation.navigate("Settings")}>
-                <Ionicons name="settings-outline" size={22} color="#FAF8F5" />
+                <Ionicons name="settings-outline" size={22} color="#1a1a1a" />
               </TouchableOpacity>
             ),
           })}

@@ -1,8 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { shareAsync } from "expo-sharing";
 import { useEffect, useRef, useState } from "react";
+import * as Clipboard from "expo-clipboard";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Dimensions,
   Linking,
   RefreshControl,
@@ -12,24 +15,39 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { fetchOutfit, fetchOutfitWithKey } from "../lib/api";
+import Purchases from "react-native-purchases";
+import { captureRef } from "react-native-view-shot";
+import { fetchOutfit } from "../lib/api";
 import { createOutfitEvent, fetchEventsForDate, getValidAccessToken } from "../lib/calendar";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function today() {
-  return new Date().toISOString().split("T")[0];
+  return localDateStr(new Date());
 }
 
 function tomorrow() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return d.toISOString().split("T")[0];
+  return localDateStr(d);
 }
 
 function formatDate(str) {
   const d = new Date(str + "T12:00:00");
   return d.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" });
+}
+
+function getContrastColor(hex) {
+  if (!hex) return "#1a1a1a";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? "#1a1a1a" : "#ffffff";
 }
 
 function formatDateShort(str) {
@@ -130,17 +148,26 @@ function WeatherIcon({ code }) {
   return "🌤️";
 }
 
-function LookCard({ title, items, mood }) {
+function LookCard({ title, items, mood, formula }) {
   if (!items) return null;
   return (
     <View style={styles.lookCard}>
       <Text style={styles.lookTitle}>{title}</Text>
-      {items.map((item, i) => (
-        <View key={i} style={styles.itemRow}>
-          <Text style={styles.itemDot}>·</Text>
-          <Text style={styles.itemText}>{item}</Text>
-        </View>
-      ))}
+      {formula && <Text style={styles.formulaText}>{formula}</Text>}
+      {items.map((item, i) => {
+        const parenIdx = item.indexOf("(");
+        const name = parenIdx > -1 ? item.slice(0, parenIdx).trim() : item;
+        const detail = parenIdx > -1 ? item.slice(parenIdx) : null;
+        return (
+          <View key={i} style={styles.itemRow}>
+            <Text style={styles.itemDot}>•</Text>
+            <Text style={styles.itemText}>
+              <Text style={styles.itemName}>{name}</Text>
+              {detail ? <Text style={styles.itemDetail}> {detail}</Text> : null}
+            </Text>
+          </View>
+        );
+      })}
       {mood && (
         <View style={styles.moodRow}>
           <Text style={styles.moodText}>"{mood}"</Text>
@@ -150,10 +177,62 @@ function LookCard({ title, items, mood }) {
   );
 }
 
+function ShareCard({ outfit, cardRef }) {
+  if (!outfit) return null;
+  return (
+    <View
+      ref={cardRef}
+      collapsable={false}
+      style={{
+        position: "absolute",
+        left: -2000,
+        width: 360,
+        height: 640,
+        backgroundColor: "#1a1a1a",
+        padding: 36,
+        justifyContent: "space-between",
+      }}
+    >
+      <View>
+        <Text style={{ fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,0.45)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 18 }}>
+          Style Challenge
+        </Text>
+        <Text style={{ fontSize: 36, fontWeight: "800", color: "#ffffff", lineHeight: 44, marginBottom: 28 }}>
+          {outfit.challenge}
+        </Text>
+        {outfit.primaryMood && (
+          <Text style={{ fontSize: 14, color: "rgba(255,255,255,0.6)", fontStyle: "italic", lineHeight: 22 }}>
+            "{outfit.primaryMood}"
+          </Text>
+        )}
+      </View>
+      <Text style={{ fontSize: 13, fontWeight: "700", color: "rgba(255,255,255,0.35)", letterSpacing: 1 }}>
+        fashionbot
+      </Text>
+    </View>
+  );
+}
+
 function OutfitPage({ state, date, onRefresh, navigation }) {
   const { outfit, weather, loading, error, refreshing } = state;
   const [addingToCalendar, setAddingToCalendar] = useState(false);
   const [calendarAdded, setCalendarAdded] = useState(false);
+  const [altExpanded, setAltExpanded] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const cardRef = useRef(null);
+
+  async function shareOutfit() {
+    setSharing(true);
+    try {
+      await Clipboard.setStringAsync("#fashionbot");
+      const uri = await captureRef(cardRef, { format: "png", quality: 1 });
+      await shareAsync(uri, { mimeType: "image/png", dialogTitle: "Share your outfit" });
+    } catch (e) {
+      Alert.alert("Couldn't share", e.message);
+    } finally {
+      setSharing(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -178,8 +257,10 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
   if (!outfit) return <View style={styles.page} />;
 
   return (
+    <View style={styles.page}>
+      <ShareCard outfit={outfit} cardRef={cardRef} />
     <ScrollView
-      style={styles.page}
+      style={{ flex: 1 }}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1a1a1a" />}
     >
@@ -200,26 +281,33 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
         </View>
       )}
 
-      {/* Formula */}
-      {outfit.formula && (
-        <Text style={styles.formulaText}>{outfit.formula}</Text>
-      )}
-
       {/* Palette */}
       {outfit.palette?.length > 0 && (
         <View style={styles.paletteRow}>
           {outfit.palette.map((colour, i) => (
-            <View key={i} style={styles.paletteChip}>
-              {colour.hex && <View style={[styles.paletteSwatch, { backgroundColor: colour.hex }]} />}
-              <Text style={styles.paletteChipText}>{colour.name}</Text>
+            <View key={i} style={[styles.paletteChip, colour.hex ? { backgroundColor: colour.hex, borderColor: "transparent" } : {}]}>
+              <Text style={[styles.paletteChipText, { color: getContrastColor(colour.hex) }]}>{colour.name}</Text>
             </View>
           ))}
         </View>
       )}
 
       {/* Looks */}
-      <LookCard title="Primary Look" items={outfit.primaryLook} mood={outfit.primaryMood} />
-      <LookCard title="Alternative Look" items={outfit.alternativeLook} mood={outfit.alternativeMood} />
+      <LookCard title="Primary Look" items={outfit.primaryLook} mood={outfit.primaryMood} formula={outfit.formula} />
+      {outfit.alternativeLook && (
+        <TouchableOpacity
+          style={styles.altToggle}
+          onPress={() => setAltExpanded((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.altToggleText}>
+            {altExpanded ? "Hide alternative look ↑" : "See alternative look →"}
+          </Text>
+        </TouchableOpacity>
+      )}
+      {altExpanded && (
+        <LookCard title="Alternative Look" items={outfit.alternativeLook} mood={outfit.alternativeMood} />
+      )}
 
       {/* Styling Tips */}
       {(outfit.tips ?? []).length > 0 && (
@@ -234,46 +322,56 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
         </View>
       )}
 
-      {/* Pinterest */}
-      {outfit.pinterestUrl && (
+      {/* Actions row */}
+      <View style={styles.actionsRow}>
+        {outfit.pinterestUrl && (
+          <TouchableOpacity
+            style={styles.actionBtnDark}
+            onPress={() => Linking.openURL(outfit.pinterestUrl)}
+          >
+            <Text style={styles.actionBtnDarkText}>Mood Board</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
-          style={styles.pinterestBtn}
-          onPress={() => Linking.openURL(outfit.pinterestUrl)}
-        >
-          <Text style={styles.pinterestText}>View Mood Board on Pinterest →</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Add to Calendar */}
-      <TouchableOpacity
-        style={[styles.calendarBtn, calendarAdded && styles.calendarBtnDone]}
-        disabled={calendarAdded || addingToCalendar}
-        onPress={async () => {
-          setAddingToCalendar(true);
-          try {
-            const token = await getValidAccessToken();
-            if (!token) {
-              Alert.alert("Not connected", "Connect Google Calendar in Settings first.");
-              return;
+          style={[styles.actionBtnOutline, calendarAdded && styles.actionBtnDone, !outfit.pinterestUrl && { flex: 1 }]}
+          disabled={calendarAdded || addingToCalendar}
+          onPress={async () => {
+            setAddingToCalendar(true);
+            try {
+              const token = await getValidAccessToken();
+              if (!token) {
+                Alert.alert("Not connected", "Connect Google Calendar in Settings first.");
+                return;
+              }
+              await createOutfitEvent(token, date, outfit);
+              setCalendarAdded(true);
+            } catch (e) {
+              Alert.alert("Couldn't add to calendar", e.message);
+            } finally {
+              setAddingToCalendar(false);
             }
-            await createOutfitEvent(token, date, outfit);
-            setCalendarAdded(true);
-          } catch (e) {
-            Alert.alert("Couldn't add to calendar", e.message);
-          } finally {
-            setAddingToCalendar(false);
-          }
-        }}
+          }}
+        >
+          <Text style={[styles.actionBtnOutlineText, calendarAdded && styles.actionBtnDoneText]}>
+            {calendarAdded ? "Added ✓" : addingToCalendar ? "Adding..." : "Add to Calendar"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={styles.shareBtn}
+        onPress={shareOutfit}
+        disabled={sharing}
       >
-        <Text style={[styles.calendarBtnText, calendarAdded && styles.calendarBtnTextDone]}>
-          {calendarAdded ? "Added to Calendar ✓" : addingToCalendar ? "Adding..." : "Add to Calendar"}
-        </Text>
+        <Text style={styles.shareBtnText}>{sharing ? "Preparing..." : "Share Outfit ↗"}</Text>
       </TouchableOpacity>
+      <Text style={styles.shareHint}>#fashionbot copied — paste it in your caption to be featured</Text>
 
       <TouchableOpacity style={styles.historyBtn} onPress={() => navigation.navigate("History")}>
         <Text style={styles.historyBtnText}>See outfit history →</Text>
       </TouchableOpacity>
     </ScrollView>
+    </View>
   );
 }
 
@@ -282,29 +380,64 @@ const EMPTY_STATE = { outfit: null, weather: null, loading: false, error: null, 
 export default function HomeScreen({ navigation }) {
   const scrollRef = useRef(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const todayDate = today();
-  const tomorrowDate = tomorrow();
+  const [todayDate, setTodayDate] = useState(today());
+  const [tomorrowDate, setTomorrowDate] = useState(tomorrow());
+  const lastKnownDate = useRef(today());
+  const appStateRef = useRef(AppState.currentState);
+  const isInitialMount = useRef(true);
+  const rcUserIdRef = useRef(null);
 
   const [todayState, setTodayState] = useState(EMPTY_STATE);
   const [tomorrowState, setTomorrowState] = useState(EMPTY_STATE);
 
+  // Load outfits whenever dates change (initial mount + day rollover)
   useEffect(() => {
-    AsyncStorage.getItem("claude_api_key").then((key) => {
-      if (!key) {
-        navigation.navigate("Paywall");
-        return;
+    async function init() {
+      // Get RC anonymous user ID for per-user outfit caching
+      try {
+        rcUserIdRef.current = await Purchases.getAppUserID();
+      } catch {
+        rcUserIdRef.current = "anonymous";
       }
-      loadForDate(todayDate, setTodayState, false);
-      loadForDate(tomorrowDate, setTomorrowState, false);
-    });
-  }, []);
 
-  // Default to tomorrow page on first render
+      setTodayState(EMPTY_STATE);
+      setTomorrowState(EMPTY_STATE);
+      await loadForDate(todayDate, setTodayState, false);
+      await loadForDate(tomorrowDate, setTomorrowState, false);
+    }
+    init();
+  }, [todayDate, tomorrowDate]);
+
+  // Default to tomorrow on initial mount; scroll to today on day rollover
   useEffect(() => {
-    const t = setTimeout(() => {
-      scrollRef.current?.scrollTo({ x: SCREEN_WIDTH, animated: false });
-    }, 50);
-    return () => clearTimeout(t);
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      const t = setTimeout(() => {
+        scrollRef.current?.scrollTo({ x: SCREEN_WIDTH, animated: false });
+        setCurrentPage(1);
+      }, 50);
+      return () => clearTimeout(t);
+    } else {
+      // Date changed — show today's outfit (which was yesterday's tomorrow, already cached)
+      scrollRef.current?.scrollTo({ x: 0, animated: false });
+      setCurrentPage(0);
+    }
+  }, [todayDate]);
+
+  // Detect when app comes to foreground and check for day change
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (appStateRef.current.match(/inactive|background/) && nextState === "active") {
+        const newToday = today();
+        if (newToday !== lastKnownDate.current) {
+          lastKnownDate.current = newToday;
+          setTodayDate(newToday);
+          setTomorrowDate(tomorrow());
+        }
+      }
+      appStateRef.current = nextState;
+    });
+    return () => subscription.remove();
   }, []);
 
   async function loadForDate(date, setState, isRefresh) {
@@ -328,10 +461,7 @@ export default function HomeScreen({ navigation }) {
       const prefs = parsePreferences(JSON.parse(raw));
       const token = await getValidAccessToken();
       const calendarEvents = token ? await fetchEventsForDate(token, date).catch(() => []) : [];
-      const apiKey = await AsyncStorage.getItem("claude_api_key");
-      const data = apiKey
-        ? await fetchOutfitWithKey(date, prefs, calendarEvents, apiKey)
-        : await fetchOutfit(date, prefs, calendarEvents);
+      const data = await fetchOutfit(date, prefs, calendarEvents, rcUserIdRef.current);
       const parsed = { outfit: parseOutfit(data.suggestions), weather: data.weather };
 
       setState({ outfit: parsed.outfit, weather: parsed.weather, loading: false, error: null, refreshing: false });
@@ -450,15 +580,17 @@ const styles = StyleSheet.create({
   weatherDesc: { fontSize: 12, color: "#9B5A45" },
 
   // Challenge
-  challengeBlock: { marginBottom: 14 },
-  challengeLabel: { fontSize: 11, fontWeight: "600", color: "#aaa", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 },
-  challengeName: { fontSize: 24, fontWeight: "700", color: "#1a1a1a", lineHeight: 32 },
+  challengeBlock: { marginBottom: 20 },
+  challengeLabel: { fontSize: 11, fontWeight: "600", color: "#aaa", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 8 },
+  challengeName: { fontSize: 34, fontWeight: "800", color: "#1a1a1a", lineHeight: 40, marginBottom: 10 },
+  formulaText: { fontSize: 15, fontWeight: "500", color: "#666", lineHeight: 24, letterSpacing: 0.1, marginBottom: 14 },
 
-  // Formula
-  formulaText: { fontSize: 14, color: "#888", lineHeight: 22, marginBottom: 20, fontStyle: "italic" },
+  // Alt look toggle
+  altToggle: { paddingVertical: 14, marginBottom: 4 },
+  altToggleText: { fontSize: 14, fontWeight: "600", color: "#C9846A" },
 
   // Palette
-  paletteRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 20 },
+  paletteRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 },
   paletteChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -466,18 +598,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e0dbd5",
     borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    gap: 8,
   },
-  paletteSwatch: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 0.5,
-    borderColor: "rgba(0,0,0,0.1)",
-  },
-  paletteChipText: { fontSize: 12, color: "#555" },
+  paletteChipText: { fontSize: 13, fontWeight: "600" },
 
   // Look cards
   lookCard: {
@@ -492,54 +617,36 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   lookTitle: { fontSize: 11, fontWeight: "600", color: "#aaa", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 12 },
-  itemRow: { flexDirection: "row", marginBottom: 7 },
-  itemDot: { fontSize: 15, color: "#ccc", marginRight: 8, lineHeight: 22 },
-  itemText: { flex: 1, fontSize: 14, color: "#2a2a2a", lineHeight: 22 },
+  itemRow: { flexDirection: "row", marginBottom: 9, alignItems: "flex-start" },
+  itemDot: { fontSize: 16, color: "#C9846A", marginRight: 10, lineHeight: 22, marginTop: 1 },
+  itemText: { flex: 1, fontSize: 14, lineHeight: 22 },
+  itemName: { fontWeight: "700", color: "#1a1a1a" },
+  itemDetail: { fontWeight: "400", color: "#777" },
   moodRow: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#f0ece7" },
   moodText: { fontSize: 13, color: "#888", fontStyle: "italic", lineHeight: 20 },
 
-  // Tips
-  tipsBlock: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 18,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 1,
-  },
+  // Tips (no card — plain section)
+  tipsBlock: { marginBottom: 20, paddingTop: 4 },
   sectionLabel: { fontSize: 11, fontWeight: "600", color: "#aaa", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 12 },
   tipRow: { flexDirection: "row", marginBottom: 10 },
   tipArrow: { fontSize: 14, color: "#c9b99a", marginRight: 8, lineHeight: 22 },
   tipText: { flex: 1, fontSize: 14, color: "#2a2a2a", lineHeight: 22 },
 
-  // Calendar
-  calendarBtn: {
-    marginTop: 10,
-    padding: 15,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#1a1a1a",
-  },
-  calendarBtnDone: { borderColor: "#aaa", backgroundColor: "#f9f9f9" },
-  calendarBtnText: { color: "#1a1a1a", fontWeight: "600", fontSize: 14 },
-  calendarBtnTextDone: { color: "#aaa" },
+  // Actions row
+  actionsRow: { flexDirection: "row", gap: 10, marginBottom: 4, marginTop: 6 },
+  actionBtnDark: { flex: 1, padding: 15, backgroundColor: "#1a1a1a", borderRadius: 12, alignItems: "center" },
+  actionBtnDarkText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  actionBtnOutline: { flex: 1, padding: 15, backgroundColor: "#fff", borderRadius: 12, alignItems: "center", borderWidth: 1, borderColor: "#1a1a1a" },
+  actionBtnOutlineText: { color: "#1a1a1a", fontWeight: "600", fontSize: 14 },
+  actionBtnDone: { borderColor: "#aaa", backgroundColor: "#f9f9f9" },
+  actionBtnDoneText: { color: "#aaa" },
+
+  // Share
+  shareBtn: { backgroundColor: "#1a1a1a", borderRadius: 12, padding: 15, alignItems: "center", marginBottom: 6, marginTop: 6 },
+  shareBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  shareHint: { fontSize: 12, color: "#aaa", textAlign: "center", marginBottom: 4 },
 
   // History
   historyBtn: { alignItems: "center", paddingVertical: 16 },
   historyBtnText: { fontSize: 13, color: "#C9846A", fontWeight: "600" },
-
-  // Pinterest
-  pinterestBtn: {
-    marginTop: 4,
-    padding: 15,
-    backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  pinterestText: { color: "#fff", fontWeight: "600", fontSize: 14 },
 });

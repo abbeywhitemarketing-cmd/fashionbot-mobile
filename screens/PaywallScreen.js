@@ -1,6 +1,61 @@
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import Purchases from "react-native-purchases";
 
 export default function PaywallScreen({ navigation }) {
+  const [offering, setOffering] = useState(null);
+  const [purchasing, setPurchasing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [offeringError, setOfferingError] = useState(null);
+
+  useEffect(() => {
+    Purchases.getOfferings()
+      .then((offerings) => {
+        if (offerings.current) setOffering(offerings.current);
+        else setOfferingError("No current offering found");
+      })
+      .catch((e) => setOfferingError(e.message));
+  }, []);
+
+  async function handleSubscribe() {
+    if (!pkg) {
+      Alert.alert("Not available", "Subscription isn't available right now. Please check your connection and try again.");
+      return;
+    }
+    setPurchasing(true);
+    try {
+      const { customerInfo } = await Purchases.purchasePackage(pkg);
+      if (customerInfo.entitlements.active["Fashion Bot Pro"]) {
+        navigation.replace("Home");
+      }
+    } catch (e) {
+      if (!e.userCancelled) {
+        Alert.alert("Purchase failed", e.message);
+      }
+    } finally {
+      setPurchasing(false);
+    }
+  }
+
+  async function handleRestore() {
+    setRestoring(true);
+    try {
+      const customerInfo = await Purchases.restorePurchases();
+      if (customerInfo.entitlements.active["Fashion Bot Pro"]) {
+        navigation.replace("Home");
+      } else {
+        Alert.alert("No subscription found", "We couldn't find an active subscription for this Apple ID.");
+      }
+    } catch (e) {
+      Alert.alert("Restore failed", e.message);
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  const pkg = offering?.monthly ?? offering?.availablePackages?.[0] ?? null;
+  const price = pkg?.product?.priceString ?? "$12.99";
+
   return (
     <View style={styles.container}>
       <View style={styles.inner}>
@@ -9,13 +64,33 @@ export default function PaywallScreen({ navigation }) {
         <Text style={styles.sub}>
           Choose how you'd like to use Fashion Bot.
         </Text>
+        {offeringError && (
+          <Text style={{ color: "red", fontSize: 12, marginBottom: 12 }}>{offeringError}</Text>
+        )}
+
+        {/* Paid option */}
+        <TouchableOpacity
+          style={styles.paidCard}
+          onPress={handleSubscribe}
+          disabled={purchasing || restoring}
+        >
+          <Text style={styles.cardLabelPaid}>7-DAY FREE TRIAL</Text>
+          <Text style={styles.cardTitlePaid}>Subscribe</Text>
+          <Text style={styles.cardDescPaid}>
+            No API key needed. Subscribe and we'll handle everything — just open the app and get dressed.
+          </Text>
+          {purchasing ? (
+            <ActivityIndicator color="#fff" style={{ marginTop: 4 }} />
+          ) : (
+            <Text style={styles.cardCtaPaid}>{price}/month after free trial →</Text>
+          )}
+        </TouchableOpacity>
 
         {/* Free option */}
         <TouchableOpacity
           style={styles.freeCard}
-          onPress={() => {
-            navigation.replace("Settings");
-          }}
+          onPress={() => navigation.replace("Settings")}
+          disabled={purchasing || restoring}
         >
           <Text style={styles.cardLabel}>FREE</Text>
           <Text style={styles.cardTitle}>Use your own Claude key</Text>
@@ -25,17 +100,11 @@ export default function PaywallScreen({ navigation }) {
           <Text style={styles.cardCta}>Add API key in Settings →</Text>
         </TouchableOpacity>
 
-        {/* Paid option */}
-        <TouchableOpacity
-          style={styles.paidCard}
-          onPress={() => Alert.alert("Coming soon", "Subscriptions will be available when the app launches on the App Store.")}
-        >
-          <Text style={styles.cardLabelPaid}>COMING SOON</Text>
-          <Text style={styles.cardTitlePaid}>Subscribe</Text>
-          <Text style={styles.cardDescPaid}>
-            No API key needed. Subscribe and we'll handle everything — just open the app and get dressed.
-          </Text>
-          <Text style={styles.cardCtaPaid}>Subscribe $X/month →</Text>
+        <TouchableOpacity onPress={handleRestore} disabled={purchasing || restoring} style={styles.restoreBtn}>
+          {restoring
+            ? <ActivityIndicator color="#bbb" />
+            : <Text style={styles.restoreText}>Restore purchases</Text>
+          }
         </TouchableOpacity>
 
         <Text style={styles.footnote}>
@@ -71,14 +140,32 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
 
+  // Paid card (now primary)
+  paidCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 14,
+  },
+  cardLabelPaid: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 2,
+    color: "#C9846A",
+    marginBottom: 6,
+  },
+  cardTitlePaid: { fontSize: 18, fontWeight: "700", color: "#fff", marginBottom: 8 },
+  cardDescPaid: { fontSize: 14, color: "#aaa", lineHeight: 21, marginBottom: 14 },
+  cardCtaPaid: { fontSize: 14, fontWeight: "600", color: "#fff" },
+
   // Free card
   freeCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
     padding: 24,
     marginBottom: 14,
-    borderWidth: 2,
-    borderColor: "#1a1a1a",
+    borderWidth: 1,
+    borderColor: "#e0d5c8",
   },
   cardLabel: {
     fontSize: 10,
@@ -91,31 +178,14 @@ const styles = StyleSheet.create({
   cardDesc: { fontSize: 14, color: "#666", lineHeight: 21, marginBottom: 14 },
   cardCta: { fontSize: 14, fontWeight: "600", color: "#1a1a1a" },
 
-  // Paid card
-  paidCard: {
-    backgroundColor: "#F2EAE0",
-    borderRadius: 16,
-    padding: 24,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: "#e0d5c8",
-    opacity: 0.7,
-  },
-  cardLabelPaid: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 2,
-    color: "#9B5A45",
-    marginBottom: 6,
-  },
-  cardTitlePaid: { fontSize: 18, fontWeight: "700", color: "#1a1a1a", marginBottom: 8 },
-  cardDescPaid: { fontSize: 14, color: "#666", lineHeight: 21, marginBottom: 14 },
-  cardCtaPaid: { fontSize: 14, fontWeight: "600", color: "#888" },
+  restoreBtn: { alignItems: "center", paddingVertical: 12 },
+  restoreText: { fontSize: 13, color: "#bbb" },
 
   footnote: {
     fontSize: 12,
     color: "#bbb",
     textAlign: "center",
     lineHeight: 18,
+    marginTop: 8,
   },
 });
