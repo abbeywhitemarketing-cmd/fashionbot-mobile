@@ -1,5 +1,9 @@
 import { registerRootComponent } from 'expo';
 
+// Must be imported at the top level so TaskManager can register the task
+// before the app mounts
+import './lib/backgroundFetch';
+
 import App from './App';
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);

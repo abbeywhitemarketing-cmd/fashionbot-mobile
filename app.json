@@ -18,7 +18,8 @@
       "bundleIdentifier": "com.fashionbot.app",
       "buildNumber": "2",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["fetch"]
       }
     },
     "android": {

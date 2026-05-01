@@ -19,6 +19,8 @@ import Purchases from "react-native-purchases";
 import { captureRef } from "react-native-view-shot";
 import { fetchOutfit } from "../lib/api";
 import { createOutfitEvent, fetchEventsForDate, getValidAccessToken } from "../lib/calendar";
+import { parseOutfit } from "../lib/parseOutfit";
+import ShopSheet from "../components/ShopSheet";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -75,68 +77,6 @@ function parsePreferences(form) {
   };
 }
 
-function parseOutfit(text) {
-  const result = {
-    challenge: null,
-    formula: null,
-    palette: null,
-    primaryLook: null,
-    primaryMood: null,
-    alternativeLook: null,
-    alternativeMood: null,
-    tips: [],
-    pinterestUrl: null,
-  };
-
-  const urlMatch = text.match(/https:\/\/www\.pinterest\.com\S+/);
-  if (urlMatch) result.pinterestUrl = urlMatch[0];
-
-  const lines = text.replace(urlMatch?.[0] || "", "").split("\n").map((l) => l.trim()).filter(Boolean);
-
-  let section = null;
-  let lookLines = [];
-
-  for (const line of lines) {
-    if (line.startsWith("Style Challenge:")) {
-      result.challenge = line.replace("Style Challenge:", "").trim().replace(/^"|"$/g, "");
-    } else if (line.startsWith("Formula:")) {
-      result.formula = line.replace("Formula:", "").trim();
-    } else if (line.startsWith("Palette:")) {
-      result.palette = line.replace("Palette:", "").trim().split("·").map((s) => {
-        const match = s.trim().match(/^(.*?)\s*(#[0-9A-Fa-f]{6})\s*$/);
-        return match ? { name: match[1].trim(), hex: match[2] } : { name: s.trim(), hex: null };
-      });
-    } else if (line === "Primary Look") {
-      if (section === "alt" && lookLines.length) result.alternativeLook = lookLines;
-      section = "primary";
-      lookLines = [];
-    } else if (line === "Alternative Look") {
-      if (section === "primary" && lookLines.length) result.primaryLook = lookLines;
-      section = "alt";
-      lookLines = [];
-    } else if (line === "Styling Tips") {
-      if (section === "alt" && lookLines.length) result.alternativeLook = lookLines;
-      section = "tips";
-      lookLines = [];
-    } else if (line === "Mood Board") {
-      section = "moodboard";
-    } else if (line.startsWith("Mood:")) {
-      const mood = line.replace("Mood:", "").trim();
-      if (section === "primary") result.primaryMood = mood;
-      if (section === "alt") result.alternativeMood = mood;
-    } else if (line.startsWith("→") || line.startsWith("->")) {
-      result.tips.push(line.replace(/^→|->/, "").trim());
-    } else if (section === "primary" || section === "alt") {
-      lookLines.push(line);
-    }
-  }
-
-  if (section === "alt" && lookLines.length && !result.alternativeLook) {
-    result.alternativeLook = lookLines;
-  }
-
-  return result;
-}
 
 function WeatherIcon({ code }) {
   if (code === 0 || code === 1) return "☀️";
@@ -219,6 +159,7 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
   const [calendarAdded, setCalendarAdded] = useState(false);
   const [altExpanded, setAltExpanded] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [shopVisible, setShopVisible] = useState(false);
   const cardRef = useRef(null);
 
   async function shareOutfit() {
@@ -367,9 +308,20 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
       </TouchableOpacity>
       <Text style={styles.shareHint}>#fashionbot copied — paste it in your caption to be featured</Text>
 
+      <TouchableOpacity style={styles.shopBtn} onPress={() => setShopVisible(true)}>
+        <Text style={styles.shopBtnText}>Shop the Look</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.historyBtn} onPress={() => navigation.navigate("History")}>
         <Text style={styles.historyBtnText}>See outfit history →</Text>
       </TouchableOpacity>
+
+      <ShopSheet
+        visible={shopVisible}
+        onClose={() => setShopVisible(false)}
+        items={outfit?.primaryLook}
+        outfitDate={date}
+      />
     </ScrollView>
     </View>
   );
@@ -645,6 +597,10 @@ const styles = StyleSheet.create({
   shareBtn: { backgroundColor: "#1a1a1a", borderRadius: 12, padding: 15, alignItems: "center", marginBottom: 6, marginTop: 6 },
   shareBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
   shareHint: { fontSize: 12, color: "#aaa", textAlign: "center", marginBottom: 4 },
+
+  // Shop the Look
+  shopBtn: { borderWidth: 1, borderColor: "#C9846A", borderRadius: 12, padding: 15, alignItems: "center", marginBottom: 4, marginTop: 6 },
+  shopBtnText: { color: "#C9846A", fontWeight: "600", fontSize: 14 },
 
   // History
   historyBtn: { alignItems: "center", paddingVertical: 16 },

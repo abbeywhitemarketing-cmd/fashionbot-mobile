@@ -5,6 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { Image, TouchableOpacity } from "react-native";
 import Purchases from "react-native-purchases";
+import { registerBackgroundFetch } from "./lib/backgroundFetch";
 import HomeScreen from "./screens/HomeScreen";
 import HistoryScreen from "./screens/HistoryScreen";
 import PaywallScreen from "./screens/PaywallScreen";
@@ -29,6 +30,7 @@ const HEADER_OPTS = {
 export default function App() {
   useEffect(() => {
     Purchases.configure({ apiKey: "appl_qQpZPVYzRtQPaPMRzQSSrBTMLBa" });
+    registerBackgroundFetch();
   }, []);
 
   return (

@@ -10,15 +10,20 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import ShopSheet from "../components/ShopSheet";
 
 const KEEP_DAYS = 14;
+
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 function getPastDates(days = KEEP_DAYS) {
   const dates = [];
   for (let i = 1; i <= days; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    dates.push(d.toISOString().split("T")[0]);
+    dates.push(localDateStr(d));
   }
   return dates;
 }
@@ -92,6 +97,7 @@ function PaletteSwatches({ palette }) {
 
 function OutfitCard({ date, data }) {
   const [expanded, setExpanded] = useState(false);
+  const [shopVisible, setShopVisible] = useState(false);
   const { outfit, weather } = data;
 
   return (
@@ -145,8 +151,19 @@ function OutfitCard({ date, data }) {
               <Text style={styles.pinterestLink}>View Mood Board on Pinterest →</Text>
             </TouchableOpacity>
           )}
+
+          <TouchableOpacity style={styles.shopBtn} onPress={() => setShopVisible(true)}>
+            <Text style={styles.shopBtnText}>Shop the Look</Text>
+          </TouchableOpacity>
         </View>
       )}
+
+      <ShopSheet
+        visible={shopVisible}
+        onClose={() => setShopVisible(false)}
+        items={outfit?.primaryLook}
+        outfitDate={date}
+      />
     </TouchableOpacity>
   );
 }
@@ -256,5 +273,7 @@ const styles = StyleSheet.create({
   mood: { fontSize: 12, color: "#888", fontStyle: "italic", marginTop: 8, lineHeight: 18 },
   tipsBlock: { marginBottom: 14 },
   tip: { fontSize: 13, color: "#555", lineHeight: 22, marginBottom: 4 },
-  pinterestLink: { fontSize: 13, color: "#C9846A", fontWeight: "600" },
+  pinterestLink: { fontSize: 13, color: "#C9846A", fontWeight: "600", marginBottom: 14 },
+  shopBtn: { borderWidth: 1, borderColor: "#C9846A", borderRadius: 10, padding: 12, alignItems: "center", marginTop: 4 },
+  shopBtnText: { color: "#C9846A", fontWeight: "600", fontSize: 13 },
 });
