@@ -20,7 +20,8 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": ["fetch"],
-        "LSApplicationQueriesSchemes": ["instagram", "instagram-stories"]
+        "LSApplicationQueriesSchemes": ["instagram", "instagram-stories"],
+        "NSPhotoLibraryUsageDescription": "Fashion Bot saves your outfit share card to Photos."
       }
     },
     "android": {
