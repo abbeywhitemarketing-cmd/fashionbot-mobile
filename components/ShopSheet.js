@@ -18,15 +18,16 @@ import { posthog } from "../lib/analytics";
 
 const CARD_WIDTH = (Dimensions.get("window").width - 48 - 12) / 2;
 
-export default function ShopSheet({ visible, onClose, items, outfitDate }) {
-  const [products, setProducts] = useState(null); // null = not loaded yet
+export default function ShopSheet({ visible, onClose, items, outfitDate, preloadedProducts }) {
+  const [products, setProducts] = useState(preloadedProducts || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (preloadedProducts) { setProducts(preloadedProducts); return; }
     if (!visible || products !== null) return;
     load();
-  }, [visible]);
+  }, [visible, preloadedProducts]);
 
   async function load() {
     setLoading(true);

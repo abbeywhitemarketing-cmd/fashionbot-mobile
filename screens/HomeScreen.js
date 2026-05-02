@@ -20,7 +20,7 @@ import {
 } from "react-native";
 import Purchases from "react-native-purchases";
 import { captureRef } from "react-native-view-shot";
-import { fetchOutfit } from "../lib/api";
+import { fetchOutfit, fetchShopProducts } from "../lib/api";
 import { posthog } from "../lib/analytics";
 import { createOutfitEvent, fetchEventsForDate, getValidAccessToken } from "../lib/calendar";
 import { parseOutfit } from "../lib/parseOutfit";
@@ -206,8 +206,54 @@ function ShareCard({ outfit, cardRef }) {
   );
 }
 
+const CAROUSEL_CARD_W = Math.floor((SCREEN_WIDTH - 20) / 5.1);
+
+function ShopCarousel({ products, date, onSeeAll }) {
+  if (!products) return null;
+  const flat = [];
+  for (const [itemName, items] of Object.entries(products)) {
+    for (const p of items) flat.push({ ...p, itemName });
+  }
+  if (flat.length === 0) return null;
+  return (
+    <View style={styles.carouselBlock}>
+      <View style={styles.carouselHeader}>
+        <Text style={styles.carouselLabel}>Shop the Look</Text>
+        <TouchableOpacity onPress={onSeeAll}>
+          <Text style={styles.carouselSeeAll}>See all →</Text>
+        </TouchableOpacity>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+        style={{ marginHorizontal: -20 }}
+      >
+        {flat.map((p, i) => (
+          <TouchableOpacity
+            key={i}
+            onPress={async () => {
+              posthog.capture("carousel_product_tapped", { retailer: p.retailer, item: p.itemName, date });
+              try { await Linking.openURL(p.url); } catch {}
+            }}
+            activeOpacity={0.8}
+          >
+            <Image
+              source={{ uri: p.image }}
+              style={{ width: CAROUSEL_CARD_W, height: CAROUSEL_CARD_W * 1.3, borderRadius: 8, backgroundColor: "#f0ece7" }}
+              resizeMode="cover"
+            />
+            <Text style={styles.carouselRetailer} numberOfLines={1}>{p.retailer}</Text>
+            {p.price ? <Text style={styles.carouselPrice} numberOfLines={1}>{p.price}</Text> : null}
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 function OutfitPage({ state, date, onRefresh, navigation }) {
-  const { outfit, weather, loading, error, refreshing } = state;
+  const { outfit, weather, products, loading, error, refreshing } = state;
   const [addingToCalendar, setAddingToCalendar] = useState(false);
   const [calendarAdded, setCalendarAdded] = useState(false);
   const [altExpanded, setAltExpanded] = useState(false);
@@ -298,6 +344,13 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
         </View>
       )}
 
+      {/* Shop carousel */}
+      <ShopCarousel
+        products={products}
+        date={date}
+        onSeeAll={() => { posthog.capture("shop_the_look_opened", { date }); setShopVisible(true); }}
+      />
+
       {/* Looks */}
       <LookCard title="Primary Look" items={outfit.primaryLook} mood={outfit.primaryMood} formula={outfit.formula} />
       {outfit.alternativeLook && (
@@ -379,10 +432,6 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
         <Text style={styles.shareBtnText}>{sharing ? "Preparing..." : "Share Outfit ↗"}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.shopBtn} onPress={() => { posthog.capture("shop_the_look_opened", { date }); setShopVisible(true); }}>
-        <Text style={styles.shopBtnText}>Shop the Look</Text>
-      </TouchableOpacity>
-
       <TouchableOpacity style={styles.historyBtn} onPress={() => { posthog.capture("history_tapped"); navigation.navigate("History"); }}>
         <Text style={styles.historyBtnText}>See outfit history →</Text>
       </TouchableOpacity>
@@ -392,13 +441,14 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
         onClose={() => setShopVisible(false)}
         items={outfit?.primaryLook}
         outfitDate={date}
+        preloadedProducts={products}
       />
     </ScrollView>
     </View>
   );
 }
 
-const EMPTY_STATE = { outfit: null, weather: null, loading: false, error: null, refreshing: false };
+const EMPTY_STATE = { outfit: null, weather: null, products: null, loading: false, error: null, refreshing: false };
 
 export default function HomeScreen({ navigation }) {
   const scrollRef = useRef(null);
@@ -463,6 +513,19 @@ export default function HomeScreen({ navigation }) {
     return () => subscription.remove();
   }, []);
 
+  async function fetchProductsInBackground(outfit, date, setState) {
+    if (!outfit?.primaryLook?.length) return;
+    try {
+      const items = outfit.primaryLook.filter(Boolean).map((i) => i.split("(")[0].trim());
+      const data = await fetchShopProducts(items, date);
+      setState((prev) => ({ ...prev, products: data.results }));
+      const cached = await getCachedOutfit(date);
+      if (cached && !cached.products) await setCachedOutfit(date, { ...cached, products: data.results });
+    } catch {
+      // silent — carousel just won't show
+    }
+  }
+
   async function loadForDate(date, setState, isRefresh) {
     setState((prev) => ({ ...prev, [isRefresh ? "refreshing" : "loading"]: true, error: null }));
 
@@ -470,8 +533,9 @@ export default function HomeScreen({ navigation }) {
       if (!isRefresh) {
         const cached = await getCachedOutfit(date);
         if (cached) {
-          setState({ outfit: cached.outfit, weather: cached.weather, loading: false, error: null, refreshing: false });
+          setState({ outfit: cached.outfit, weather: cached.weather, products: cached.products || null, loading: false, error: null, refreshing: false });
           posthog.capture("outfit_loaded", { source: "cache", date });
+          if (!cached.products) fetchProductsInBackground(cached.outfit, date, setState);
           return;
         }
       }
@@ -488,9 +552,10 @@ export default function HomeScreen({ navigation }) {
       const data = await fetchOutfit(date, prefs, calendarEvents, rcUserIdRef.current);
       const parsed = { outfit: parseOutfit(data.suggestions), weather: data.weather };
 
-      setState({ outfit: parsed.outfit, weather: parsed.weather, loading: false, error: null, refreshing: false });
+      setState({ outfit: parsed.outfit, weather: parsed.weather, products: null, loading: false, error: null, refreshing: false });
       await setCachedOutfit(date, parsed);
       posthog.capture(isRefresh ? "outfit_refreshed" : "outfit_loaded", { source: "fresh", date });
+      fetchProductsInBackground(parsed.outfit, date, setState);
     } catch (e) {
       setState((prev) => ({ ...prev, loading: false, refreshing: false, error: e.message }));
       posthog.capture("outfit_load_error", { date, error: e.message });
@@ -671,9 +736,13 @@ const styles = StyleSheet.create({
   shareBtn: { backgroundColor: "#1a1a1a", borderRadius: 12, padding: 15, alignItems: "center", marginBottom: 6, marginTop: 6 },
   shareBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
 
-  // Shop the Look
-  shopBtn: { borderWidth: 1, borderColor: "#C9846A", borderRadius: 12, padding: 15, alignItems: "center", marginBottom: 4, marginTop: 6 },
-  shopBtnText: { color: "#C9846A", fontWeight: "600", fontSize: 14 },
+  // Shop carousel
+  carouselBlock: { marginBottom: 16, marginTop: 4 },
+  carouselHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  carouselLabel: { fontSize: 11, fontWeight: "600", color: "#aaa", letterSpacing: 1.2, textTransform: "uppercase" },
+  carouselSeeAll: { fontSize: 12, fontWeight: "600", color: "#C9846A" },
+  carouselRetailer: { fontSize: 9, fontWeight: "700", color: "#C9846A", textTransform: "uppercase", letterSpacing: 0.4, marginTop: 5, width: CAROUSEL_CARD_W },
+  carouselPrice: { fontSize: 11, fontWeight: "700", color: "#1a1a1a", width: CAROUSEL_CARD_W },
 
   // History
   historyBtn: { alignItems: "center", paddingVertical: 16 },
