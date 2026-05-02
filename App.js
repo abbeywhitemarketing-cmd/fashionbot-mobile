@@ -5,6 +5,8 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { Image, TouchableOpacity } from "react-native";
 import Purchases from "react-native-purchases";
+import { PostHogProvider } from "posthog-react-native";
+import { posthog } from "./lib/analytics";
 import { registerBackgroundFetch } from "./lib/backgroundFetch";
 import HomeScreen from "./screens/HomeScreen";
 import HistoryScreen from "./screens/HistoryScreen";
@@ -35,6 +37,7 @@ export default function App() {
 
   return (
     <NavigationContainer>
+    <PostHogProvider client={posthog} captureScreens={false}>
       <StatusBar style="dark" />
       <Stack.Navigator screenOptions={HEADER_OPTS}>
         <Stack.Screen
@@ -66,6 +69,7 @@ export default function App() {
           options={{ title: "Get Started", headerTitleStyle: { color: "#FAF8F5", fontWeight: "700" }, presentation: "modal" }}
         />
       </Stack.Navigator>
+    </PostHogProvider>
     </NavigationContainer>
   );
 }

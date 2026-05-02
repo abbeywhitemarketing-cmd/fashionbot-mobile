@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
+  Image,
   Linking,
   Modal,
   ScrollView,
@@ -10,21 +12,46 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { cleanItemName, RETAILERS, shopClick } from "../lib/shop";
+import { fetchShopProducts } from "../lib/api";
+import { cleanItemName } from "../lib/shop";
+import { posthog } from "../lib/analytics";
+
+const CARD_WIDTH = (Dimensions.get("window").width - 48 - 12) / 2;
 
 export default function ShopSheet({ visible, onClose, items, outfitDate }) {
-  const [loading, setLoading] = useState({}); // { "itemIndex-retailerId": true }
+  const [products, setProducts] = useState(null); // null = not loaded yet
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  async function handleTap(retailer, rawItem, itemIndex) {
-    const key = `${itemIndex}-${retailer.id}`;
-    setLoading((prev) => ({ ...prev, [key]: true }));
+  useEffect(() => {
+    if (!visible || products !== null) return;
+    load();
+  }, [visible]);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
     try {
-      const url = await shopClick(retailer.id, rawItem, outfitDate);
+      const cleanedItems = (items || []).filter(Boolean).map(cleanItemName);
+      const data = await fetchShopProducts(cleanedItems, outfitDate);
+      setProducts(data.results);
+    } catch (e) {
+      setError("Couldn't load products. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleClose() {
+    onClose();
+  }
+
+  async function openProduct(url, itemName, retailer) {
+    posthog.capture("shop_product_tapped", { item: itemName, retailer, date: outfitDate });
+    try {
       await Linking.openURL(url);
     } catch {
-      Alert.alert("Couldn't open", "Try again in a moment.");
-    } finally {
-      setLoading((prev) => ({ ...prev, [key]: false }));
+      Alert.alert("Couldn't open link", "Try again in a moment.");
     }
   }
 
@@ -35,49 +62,69 @@ export default function ShopSheet({ visible, onClose, items, outfitDate }) {
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>Shop the Look</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <TouchableOpacity onPress={handleClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Text style={styles.close}>✕</Text>
           </TouchableOpacity>
         </View>
-        <Text style={styles.subtitle}>Tap a retailer to search for that piece</Text>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {displayItems.map((rawItem, itemIndex) => (
-            <View key={itemIndex} style={styles.itemBlock}>
-              <Text style={styles.itemName}>{cleanItemName(rawItem)}</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.pillRow}
-              >
-                {RETAILERS.map((retailer) => {
-                  const key = `${itemIndex}-${retailer.id}`;
-                  const isLoading = loading[key];
-                  return (
-                    <TouchableOpacity
-                      key={retailer.id}
-                      style={styles.pill}
-                      onPress={() => handleTap(retailer, rawItem, itemIndex)}
-                      disabled={isLoading}
-                      activeOpacity={0.7}
-                    >
-                      {isLoading ? (
-                        <ActivityIndicator size="small" color="#6B3A2A" />
-                      ) : (
-                        <Text style={styles.pillText}>{retailer.name}</Text>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          ))}
-        </ScrollView>
+        {loading && (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color="#1a1a1a" />
+            <Text style={styles.loadingText}>Finding pieces for you...</Text>
+          </View>
+        )}
+
+        {error && !loading && (
+          <View style={styles.center}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={load}>
+              <Text style={styles.retryText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {!loading && !error && products && (
+          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+            {displayItems.map((rawItem) => {
+              const itemName = cleanItemName(rawItem);
+              const itemProducts = products[itemName] || [];
+              if (itemProducts.length === 0) return null;
+              return (
+                <View key={rawItem} style={styles.itemBlock}>
+                  <Text style={styles.itemName}>{itemName}</Text>
+                  <View style={styles.cardRow}>
+                    {itemProducts.map((product, i) => (
+                      <TouchableOpacity
+                        key={i}
+                        style={styles.card}
+                        onPress={() => openProduct(product.url, itemName, product.retailer)}
+                        activeOpacity={0.8}
+                      >
+                        <Image
+                          source={{ uri: product.image }}
+                          style={styles.cardImage}
+                          resizeMode="cover"
+                        />
+                        <View style={styles.cardInfo}>
+                          <Text style={styles.cardRetailer} numberOfLines={1}>{product.retailer}</Text>
+                          <Text style={styles.cardTitle} numberOfLines={2}>{product.title}</Text>
+                          {product.price ? (
+                            <Text style={styles.cardPrice}>{product.price}</Text>
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
     </Modal>
   );
@@ -92,35 +139,54 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: 4,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ece8e3",
   },
   title: { fontSize: 20, fontWeight: "800", color: "#1a1a1a" },
   close: { fontSize: 16, color: "#888", fontWeight: "500" },
-  subtitle: { fontSize: 12, color: "#aaa", paddingHorizontal: 20, marginBottom: 20 },
 
-  content: { paddingHorizontal: 20, paddingBottom: 60 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  loadingText: { marginTop: 14, fontSize: 14, color: "#888" },
+  errorText: { fontSize: 14, color: "#c0392b", textAlign: "center", marginBottom: 16 },
+  retryBtn: { backgroundColor: "#1a1a1a", paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  retryText: { color: "#fff", fontWeight: "600", fontSize: 14 },
 
-  itemBlock: { marginBottom: 22 },
+  content: { padding: 20, paddingBottom: 60 },
+
+  itemBlock: { marginBottom: 28 },
   itemName: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
     color: "#1a1a1a",
-    marginBottom: 10,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
+    marginBottom: 12,
   },
 
-  pillRow: { flexDirection: "row", gap: 8, paddingRight: 20 },
-  pill: {
+  cardRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  card: {
+    width: CARD_WIDTH,
     backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#e0dbd5",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    minWidth: 44,
-    alignItems: "center",
-    justifyContent: "center",
+    borderColor: "#ece8e3",
   },
-  pillText: { fontSize: 13, fontWeight: "500", color: "#1a1a1a", whiteSpace: "nowrap" },
+  cardImage: {
+    width: "100%",
+    height: CARD_WIDTH * 1.2,
+    backgroundColor: "#f0ece7",
+  },
+  cardInfo: { padding: 10 },
+  cardRetailer: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#C9846A",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  cardTitle: { fontSize: 12, color: "#1a1a1a", lineHeight: 17, marginBottom: 5 },
+  cardPrice: { fontSize: 13, fontWeight: "700", color: "#1a1a1a" },
 });

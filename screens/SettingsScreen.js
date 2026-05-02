@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { posthog } from "../lib/analytics";
 import {
   clearTokens,
   getAuthStartUrl,
@@ -78,15 +79,9 @@ export default function SettingsScreen({ navigation }) {
   const [connecting, setConnecting] = useState(false);
   const [notificationsOn, setNotificationsOn] = useState(false);
   const [notifyHour, setNotifyHour] = useState(19);
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeySaved, setApiKeySaved] = useState(false);
-
   useEffect(() => {
     AsyncStorage.getItem("preferences").then((raw) => {
       if (raw) setForm({ ...DEFAULTS, ...JSON.parse(raw) });
-    });
-    AsyncStorage.getItem("claude_api_key").then((k) => {
-      if (k) setApiKey(k);
     });
     getStoredTokens().then((t) => setCalendarConnected(!!t));
     getScheduledReminder().then((r) => {
@@ -103,24 +98,9 @@ export default function SettingsScreen({ navigation }) {
 
   async function save() {
     await AsyncStorage.setItem("preferences", JSON.stringify(form));
+    posthog.capture("preferences_saved");
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-  }
-
-  async function saveApiKey() {
-    const trimmed = apiKey.trim();
-    if (trimmed && !trimmed.startsWith("sk-ant-")) {
-      Alert.alert("Invalid key", "Your Claude API key should start with sk-ant-");
-      return;
-    }
-    if (trimmed) {
-      await AsyncStorage.setItem("claude_api_key", trimmed);
-    } else {
-      await AsyncStorage.removeItem("claude_api_key");
-    }
-    setApiKeySaved(true);
-    setTimeout(() => setApiKeySaved(false), 2000);
-    if (trimmed) navigation.navigate("Home");
   }
 
   async function connectCalendar() {
@@ -135,6 +115,7 @@ export default function SettingsScreen({ navigation }) {
           refresh_token: tokens.refresh_token ?? null,
           expires_at: Date.now() + (tokens.expires_in ?? 3600) * 1000,
         });
+        posthog.capture("calendar_connected");
         setCalendarConnected(true);
       } else {
         Alert.alert("Connection timed out", "Please try again.");
@@ -154,6 +135,7 @@ export default function SettingsScreen({ navigation }) {
         style: "destructive",
         onPress: async () => {
           await clearTokens();
+          posthog.capture("calendar_disconnected");
           setCalendarConnected(false);
         },
       },
@@ -208,28 +190,6 @@ export default function SettingsScreen({ navigation }) {
         <Text style={styles.buttonText}>{saved ? "Saved ✓" : "Save"}</Text>
       </TouchableOpacity>
 
-      {/* Claude API Key */}
-      <View style={styles.divider} />
-      <Text style={styles.sectionHeading}>Claude API Key</Text>
-      <Text style={styles.hint}>
-        Add your own Anthropic API key to use Fashion Bot for free. Get yours at console.anthropic.com.
-      </Text>
-      <View style={styles.field}>
-        <TextInput
-          style={styles.input}
-          value={apiKey}
-          onChangeText={setApiKey}
-          placeholder="sk-ant-..."
-          placeholderTextColor="#bbb"
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry={false}
-        />
-      </View>
-      <TouchableOpacity style={styles.button} onPress={saveApiKey}>
-        <Text style={styles.buttonText}>{apiKeySaved ? "Saved ✓" : "Save API Key"}</Text>
-      </TouchableOpacity>
-
       {/* Google Calendar */}
       <View style={styles.divider} />
       <Text style={styles.sectionHeading}>Integrations</Text>
@@ -275,6 +235,7 @@ export default function SettingsScreen({ navigation }) {
             style={styles.disconnectBtn}
             onPress={async () => {
               await cancelDailyOutfitReminder();
+              posthog.capture("notification_disabled");
               setNotificationsOn(false);
             }}
           >
@@ -290,6 +251,7 @@ export default function SettingsScreen({ navigation }) {
                 return;
               }
               await scheduleDailyOutfitReminder(notifyHour, 0);
+              posthog.capture("notification_enabled", { hour: notifyHour });
               setNotificationsOn(true);
             }}
           >

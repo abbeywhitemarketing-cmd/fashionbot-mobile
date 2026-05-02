@@ -19,7 +19,8 @@
       "buildNumber": "2",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["fetch"]
+        "UIBackgroundModes": ["fetch"],
+        "LSApplicationQueriesSchemes": ["instagram", "instagram-stories"]
       }
     },
     "android": {

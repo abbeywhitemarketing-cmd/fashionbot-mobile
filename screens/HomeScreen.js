@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { shareAsync } from "expo-sharing";
+let Share = null;
+try { Share = require("react-native-share").default; } catch {}
 import { useEffect, useRef, useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import {
@@ -7,6 +9,7 @@ import {
   Alert,
   AppState,
   Dimensions,
+  Image,
   Linking,
   RefreshControl,
   ScrollView,
@@ -18,6 +21,7 @@ import {
 import Purchases from "react-native-purchases";
 import { captureRef } from "react-native-view-shot";
 import { fetchOutfit } from "../lib/api";
+import { posthog } from "../lib/analytics";
 import { createOutfitEvent, fetchEventsForDate, getValidAccessToken } from "../lib/calendar";
 import { parseOutfit } from "../lib/parseOutfit";
 import ShopSheet from "../components/ShopSheet";
@@ -128,27 +132,76 @@ function ShareCard({ outfit, cardRef }) {
         left: -2000,
         width: 360,
         height: 640,
-        backgroundColor: "#1a1a1a",
-        padding: 36,
-        justifyContent: "space-between",
+        backgroundColor: "#FAF8F5",
       }}
     >
-      <View>
-        <Text style={{ fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,0.45)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 18 }}>
-          Style Challenge
-        </Text>
-        <Text style={{ fontSize: 36, fontWeight: "800", color: "#ffffff", lineHeight: 44, marginBottom: 28 }}>
-          {outfit.challenge}
-        </Text>
-        {outfit.primaryMood && (
-          <Text style={{ fontSize: 14, color: "rgba(255,255,255,0.6)", fontStyle: "italic", lineHeight: 22 }}>
-            "{outfit.primaryMood}"
+      <View style={{ flex: 1, padding: 32, justifyContent: "space-between" }}>
+
+        {/* Top: logo + challenge */}
+        <View>
+          {/* Logo row */}
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 20 }}>
+            <Image
+              source={require("../assets/logo-head.png")}
+              style={{ width: 36, height: 36, marginRight: 10 }}
+              resizeMode="contain"
+            />
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#6B3A2A", letterSpacing: 2, textTransform: "uppercase" }}>
+              Fashion Bot
+            </Text>
+          </View>
+
+          {/* Divider */}
+          <View style={{ height: 1, backgroundColor: "#C9846A", opacity: 0.35, marginBottom: 22 }} />
+
+          {/* Challenge label + name */}
+          <Text style={{ fontSize: 10, fontWeight: "700", color: "#C9846A", letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
+            Style Challenge
           </Text>
-        )}
+          <Text style={{ fontSize: 36, fontWeight: "800", color: "#1a1a1a", lineHeight: 44, marginBottom: 18 }}>
+            {outfit.challenge}
+          </Text>
+
+          {/* Formula */}
+          {outfit.formula ? (
+            <Text style={{ fontSize: 12, color: "#999", lineHeight: 19, marginBottom: 18, letterSpacing: 0.1 }}>
+              {outfit.formula}
+            </Text>
+          ) : null}
+
+          {/* Palette dots */}
+          {outfit.palette?.length > 0 ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 18 }}>
+              {outfit.palette.map((colour, i) => (
+                <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                  {colour.hex ? (
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colour.hex }} />
+                  ) : null}
+                  <Text style={{ fontSize: 11, color: "#888" }}>{colour.name}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {/* Mood quote */}
+          {outfit.primaryMood ? (
+            <Text style={{ fontSize: 13, color: "#9B5A45", fontStyle: "italic", lineHeight: 20 }}>
+              "{outfit.primaryMood}"
+            </Text>
+          ) : null}
+        </View>
+
+        {/* Bottom CTA block */}
+        <View style={{ backgroundColor: "#6B3A2A", borderRadius: 14, padding: 18 }}>
+          <Text style={{ fontSize: 20, fontWeight: "800", color: "#fff", marginBottom: 8 }}>
+            Fit check incoming →
+          </Text>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.75)" }}>
+            Tag us @fashion.bot.app
+          </Text>
+        </View>
+
       </View>
-      <Text style={{ fontSize: 13, fontWeight: "700", color: "rgba(255,255,255,0.35)", letterSpacing: 1 }}>
-        fashionbot
-      </Text>
     </View>
   );
 }
@@ -164,10 +217,22 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
 
   async function shareOutfit() {
     setSharing(true);
+    posthog.capture("share_outfit_tapped", { date });
     try {
-      await Clipboard.setStringAsync("#fashionbot");
+      await Clipboard.setStringAsync("@fashion.bot.app");
       const uri = await captureRef(cardRef, { format: "png", quality: 1 });
-      await shareAsync(uri, { mimeType: "image/png", dialogTitle: "Share your outfit" });
+      if (Share) {
+        try {
+          await Share.shareSingle({
+            social: Share.Social.INSTAGRAM_STORIES,
+            backgroundImage: uri,
+          });
+        } catch {
+          await shareAsync(uri, { mimeType: "image/png", dialogTitle: "Share your outfit" });
+        }
+      } else {
+        await shareAsync(uri, { mimeType: "image/png", dialogTitle: "Share your outfit" });
+      }
     } catch (e) {
       Alert.alert("Couldn't share", e.message);
     } finally {
@@ -238,7 +303,10 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
       {outfit.alternativeLook && (
         <TouchableOpacity
           style={styles.altToggle}
-          onPress={() => setAltExpanded((v) => !v)}
+          onPress={() => {
+            if (!altExpanded) posthog.capture("alternative_look_expanded", { date });
+            setAltExpanded((v) => !v);
+          }}
           activeOpacity={0.7}
         >
           <Text style={styles.altToggleText}>
@@ -268,7 +336,10 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
         {outfit.pinterestUrl && (
           <TouchableOpacity
             style={styles.actionBtnDark}
-            onPress={() => Linking.openURL(outfit.pinterestUrl)}
+            onPress={() => {
+              posthog.capture("mood_board_tapped", { date });
+              Linking.openURL(outfit.pinterestUrl);
+            }}
           >
             <Text style={styles.actionBtnDarkText}>Mood Board</Text>
           </TouchableOpacity>
@@ -277,6 +348,7 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
           style={[styles.actionBtnOutline, calendarAdded && styles.actionBtnDone, !outfit.pinterestUrl && { flex: 1 }]}
           disabled={calendarAdded || addingToCalendar}
           onPress={async () => {
+            posthog.capture("add_to_calendar_tapped", { date });
             setAddingToCalendar(true);
             try {
               const token = await getValidAccessToken();
@@ -306,13 +378,12 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
       >
         <Text style={styles.shareBtnText}>{sharing ? "Preparing..." : "Share Outfit ↗"}</Text>
       </TouchableOpacity>
-      <Text style={styles.shareHint}>#fashionbot copied — paste it in your caption to be featured</Text>
 
-      <TouchableOpacity style={styles.shopBtn} onPress={() => setShopVisible(true)}>
+      <TouchableOpacity style={styles.shopBtn} onPress={() => { posthog.capture("shop_the_look_opened", { date }); setShopVisible(true); }}>
         <Text style={styles.shopBtnText}>Shop the Look</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.historyBtn} onPress={() => navigation.navigate("History")}>
+      <TouchableOpacity style={styles.historyBtn} onPress={() => { posthog.capture("history_tapped"); navigation.navigate("History"); }}>
         <Text style={styles.historyBtnText}>See outfit history →</Text>
       </TouchableOpacity>
 
@@ -400,6 +471,7 @@ export default function HomeScreen({ navigation }) {
         const cached = await getCachedOutfit(date);
         if (cached) {
           setState({ outfit: cached.outfit, weather: cached.weather, loading: false, error: null, refreshing: false });
+          posthog.capture("outfit_loaded", { source: "cache", date });
           return;
         }
       }
@@ -418,8 +490,10 @@ export default function HomeScreen({ navigation }) {
 
       setState({ outfit: parsed.outfit, weather: parsed.weather, loading: false, error: null, refreshing: false });
       await setCachedOutfit(date, parsed);
+      posthog.capture(isRefresh ? "outfit_refreshed" : "outfit_loaded", { source: "fresh", date });
     } catch (e) {
       setState((prev) => ({ ...prev, loading: false, refreshing: false, error: e.message }));
+      posthog.capture("outfit_load_error", { date, error: e.message });
     }
   }
 
@@ -596,7 +670,6 @@ const styles = StyleSheet.create({
   // Share
   shareBtn: { backgroundColor: "#1a1a1a", borderRadius: 12, padding: 15, alignItems: "center", marginBottom: 6, marginTop: 6 },
   shareBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  shareHint: { fontSize: 12, color: "#aaa", textAlign: "center", marginBottom: 4 },
 
   // Shop the Look
   shopBtn: { borderWidth: 1, borderColor: "#C9846A", borderRadius: 12, padding: 15, alignItems: "center", marginBottom: 4, marginTop: 6 },
