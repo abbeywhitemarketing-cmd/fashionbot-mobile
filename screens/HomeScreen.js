@@ -355,20 +355,41 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
       <LookCard title="Primary Look" items={outfit.primaryLook} mood={outfit.primaryMood} formula={outfit.formula} />
       {outfit.alternativeLook && (
         <TouchableOpacity
-          style={styles.altToggle}
+          style={styles.lookCard}
           onPress={() => {
             if (!altExpanded) posthog.capture("alternative_look_expanded", { date });
             setAltExpanded((v) => !v);
           }}
-          activeOpacity={0.7}
+          activeOpacity={0.85}
         >
-          <Text style={styles.altToggleText}>
-            {altExpanded ? "Hide alternative look ↑" : "See alternative look →"}
-          </Text>
+          <View style={styles.altCardHeader}>
+            <Text style={styles.lookTitle}>Alternative Look</Text>
+            <Text style={styles.altChevron}>{altExpanded ? "▴" : "▾"}</Text>
+          </View>
+          {altExpanded && (
+            <>
+              {outfit.alternativeLook.map((item, i) => {
+                const parenIdx = item.indexOf("(");
+                const name = parenIdx > -1 ? item.slice(0, parenIdx).trim() : item;
+                const detail = parenIdx > -1 ? item.slice(parenIdx) : null;
+                return (
+                  <View key={i} style={styles.itemRow}>
+                    <Text style={styles.itemDot}>•</Text>
+                    <Text style={styles.itemText}>
+                      <Text style={styles.itemName}>{name}</Text>
+                      {detail ? <Text style={styles.itemDetail}> {detail}</Text> : null}
+                    </Text>
+                  </View>
+                );
+              })}
+              {outfit.alternativeMood && (
+                <View style={styles.moodRow}>
+                  <Text style={styles.moodText}>"{outfit.alternativeMood}"</Text>
+                </View>
+              )}
+            </>
+          )}
         </TouchableOpacity>
-      )}
-      {altExpanded && (
-        <LookCard title="Alternative Look" items={outfit.alternativeLook} mood={outfit.alternativeMood} />
       )}
 
       {/* Styling Tips */}
@@ -676,9 +697,8 @@ const styles = StyleSheet.create({
   challengeName: { fontSize: 34, fontWeight: "800", color: "#1a1a1a", lineHeight: 40, marginBottom: 10 },
   formulaText: { fontSize: 15, fontWeight: "500", color: "#666", lineHeight: 24, letterSpacing: 0.1, marginBottom: 14 },
 
-  // Alt look toggle
-  altToggle: { paddingVertical: 14, marginBottom: 4 },
-  altToggleText: { fontSize: 14, fontWeight: "600", color: "#C9846A" },
+  altCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  altChevron: { fontSize: 12, color: "#aaa" },
 
   // Palette
   paletteRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 },
