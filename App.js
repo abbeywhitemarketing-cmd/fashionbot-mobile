@@ -2,12 +2,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
-import { Image, TouchableOpacity } from "react-native";
+import { useEffect, useRef } from "react";
+import { AppState, Image, TouchableOpacity } from "react-native";
 import Purchases from "react-native-purchases";
 import { PostHogProvider } from "posthog-react-native";
 import { posthog } from "./lib/analytics";
-import { registerBackgroundFetch } from "./lib/backgroundFetch";
+import { registerBackgroundFetch, prefetchTomorrowOnBackground } from "./lib/backgroundFetch";
 import HomeScreen from "./screens/HomeScreen";
 import HistoryScreen from "./screens/HistoryScreen";
 import PaywallScreen from "./screens/PaywallScreen";
@@ -30,9 +30,19 @@ const HEADER_OPTS = {
 };
 
 export default function App() {
+  const appState = useRef(AppState.currentState);
+
   useEffect(() => {
-    Purchases.configure({ apiKey: "appl_qQpZPVYzRtQPaPMRzQSSrBTMLBa" });
+    try { Purchases.configure({ apiKey: "appl_qQpZPVYzRtQPaPMRzQSSrBTMLBa" }); } catch {}
     registerBackgroundFetch();
+
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (appState.current === "active" && nextState.match(/inactive|background/)) {
+        prefetchTomorrowOnBackground();
+      }
+      appState.current = nextState;
+    });
+    return () => subscription.remove();
   }, []);
 
   return (

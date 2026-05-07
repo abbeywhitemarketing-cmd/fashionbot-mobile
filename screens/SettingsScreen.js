@@ -1,8 +1,10 @@
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useState } from "react";
 import {
   Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -59,9 +61,9 @@ function DayPicker({ value, onChange }) {
 
 const DEFAULTS = {
   city: "Sydney, Australia",
-  style_keywords: "minimalist, editorial, effortless",
+  style_keywords: "",
   work_days: "0,1,2,3,4",
-  weekend_activities: "markets, brunch, galleries",
+  weekend_activities: "",
   nights_out_days: "4,5",
   special_instructions: "",
 };
@@ -280,6 +282,19 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </View>
       )}
+
+      <View style={styles.divider} />
+      <View style={styles.socialRow}>
+        <TouchableOpacity style={styles.socialLink} onPress={() => Linking.openURL("https://instagram.com/fashion.bot.app")}>
+          <Ionicons name="logo-instagram" size={16} color="#aaa" />
+          <Text style={styles.socialLinkText}>Instagram</Text>
+        </TouchableOpacity>
+        <Text style={styles.socialDot}>·</Text>
+        <TouchableOpacity style={styles.socialLink} onPress={() => Linking.openURL("https://abbeywhitemarketing-cmd.github.io/fashionbot-landing-/")}>
+          <Ionicons name="globe-outline" size={16} color="#aaa" />
+          <Text style={styles.socialLinkText}>Website</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 }
@@ -386,4 +401,9 @@ const styles = StyleSheet.create({
   timeChipSelected: { backgroundColor: "#1a1a1a", borderColor: "#1a1a1a" },
   timeChipText: { fontSize: 13, fontWeight: "600", color: "#999" },
   timeChipTextSelected: { color: "#fff" },
+
+  socialRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 12, paddingBottom: 8 },
+  socialLink: { flexDirection: "row", alignItems: "center", gap: 5 },
+  socialLinkText: { fontSize: 13, color: "#aaa" },
+  socialDot: { fontSize: 13, color: "#ccc" },
 });
