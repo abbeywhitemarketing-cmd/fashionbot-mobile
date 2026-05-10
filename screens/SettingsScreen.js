@@ -100,6 +100,19 @@ export default function SettingsScreen({ navigation }) {
 
   async function save() {
     await AsyncStorage.setItem("preferences", JSON.stringify(form));
+    // Clear cached outfits for today + tomorrow so HomeScreen regenerates with new prefs
+    const fmt = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const todayStr = fmt(new Date());
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = fmt(tomorrow);
+    await Promise.all([
+      AsyncStorage.removeItem(`outfit_${todayStr}`),
+      AsyncStorage.removeItem(`outfit_${tomorrowStr}`),
+      AsyncStorage.removeItem(`outfit_refreshed_${todayStr}`),
+      AsyncStorage.removeItem(`outfit_refreshed_${tomorrowStr}`),
+    ]);
+    await AsyncStorage.setItem("preferences_updated", "1");
     posthog.capture("preferences_saved");
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);

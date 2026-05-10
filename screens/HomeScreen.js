@@ -2,7 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { shareAsync } from "expo-sharing";
 let Share = null;
 try { Share = require("react-native-share").default; } catch {}
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import {
   ActivityIndicator,
@@ -395,6 +396,17 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
       {outfit.alternativeLook && (
         <AltLookToggle items={outfit.alternativeLook} mood={outfit.alternativeMood} date={date} />
       )}
+      {outfit.eveningShift && outfit.eveningShift.length > 0 && (
+        <View style={styles.eveningShiftBlock}>
+          <Text style={styles.eveningShiftTitle}>Evening Shift</Text>
+          {outfit.eveningShift.map((swap, i) => (
+            <View key={i} style={styles.itemRow}>
+              <Text style={styles.itemDot}>•</Text>
+              <Text style={styles.itemText}>{swap}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Styling Tips */}
       {(outfit.tips ?? []).length > 0 && (
@@ -513,6 +525,25 @@ export default function HomeScreen({ navigation }) {
     init();
   }, [todayDate, tomorrowDate]);
 
+  // Reload outfits when returning from Settings after saving new preferences
+  useFocusEffect(
+    useCallback(() => {
+      async function checkPrefsUpdated() {
+        const updated = await AsyncStorage.getItem("preferences_updated");
+        if (updated === "1") {
+          await AsyncStorage.removeItem("preferences_updated");
+          setTodayState({ ...EMPTY_STATE, loading: true });
+          setTomorrowState({ ...EMPTY_STATE, loading: true });
+          await Promise.all([
+            loadForDate(todayDate, setTodayState, true),
+            loadForDate(tomorrowDate, setTomorrowState, true),
+          ]);
+        }
+      }
+      checkPrefsUpdated();
+    }, [todayDate, tomorrowDate])
+  );
+
   // Default to tomorrow on initial mount; scroll to today on day rollover
   useEffect(() => {
     if (isInitialMount.current) {
@@ -551,7 +582,10 @@ export default function HomeScreen({ navigation }) {
     try {
       const items = outfit.primaryLook.filter(Boolean).map((i) => i.split("(")[0].trim());
       const palette = (outfit.palette || []).map((c) => c.name).filter(Boolean);
-      const data = await fetchShopProducts(items, date, palette);
+      const challenge = outfit.challenge || "";
+      const prefsRaw = await AsyncStorage.getItem("preferences");
+      const styleKeywords = prefsRaw ? (JSON.parse(prefsRaw).style_keywords || "") : "";
+      const data = await fetchShopProducts(items, date, palette, challenge, styleKeywords);
       console.log("Shop results:", JSON.stringify(data.results));
       const hasResults = Object.values(data.results).some((a) => a.length > 0);
       setState((prev) => ({ ...prev, products: data.results }));
@@ -761,6 +795,10 @@ const styles = StyleSheet.create({
   itemDetail: { fontWeight: "400", color: "#777" },
   moodRow: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#f0ece7" },
   moodText: { fontSize: 13, color: "#888", fontStyle: "italic", lineHeight: 20 },
+
+  // Evening Shift
+  eveningShiftBlock: { marginTop: 8, marginBottom: 4, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#f0ece7" },
+  eveningShiftTitle: { fontSize: 11, fontWeight: "600", color: "#aaa", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 10 },
 
   // Tips (no card — plain section)
   tipsBlock: { marginBottom: 20, paddingTop: 4 },
