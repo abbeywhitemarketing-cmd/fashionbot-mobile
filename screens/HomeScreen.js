@@ -505,6 +505,7 @@ export default function HomeScreen({ navigation }) {
   const rcUserIdRef = useRef(null);
   const tomorrowDateRef = useRef(tomorrowDate);
   const tomorrowReadyRef = useRef(false);
+  const tomorrowLoadStartedAt = useRef(null);
 
   const [todayState, setTodayState] = useState(EMPTY_STATE);
   const [tomorrowState, setTomorrowState] = useState(EMPTY_STATE);
@@ -565,6 +566,11 @@ export default function HomeScreen({ navigation }) {
   // Keep refs in sync so the AppState listener ([] deps) can always read current values
   useEffect(() => { tomorrowDateRef.current = tomorrowDate; }, [tomorrowDate]);
   useEffect(() => {
+    if (tomorrowState.loading && !tomorrowState.outfit) {
+      tomorrowLoadStartedAt.current = Date.now();
+    } else {
+      tomorrowLoadStartedAt.current = null;
+    }
     tomorrowReadyRef.current = !!(tomorrowState.outfit || tomorrowState.loading || tomorrowState.error);
   }, [tomorrowState]);
 
@@ -579,6 +585,12 @@ export default function HomeScreen({ navigation }) {
           setTomorrowDate(tomorrow());
         } else if (!tomorrowReadyRef.current) {
           // Same day but tomorrow's outfit didn't load overnight — fetch it now
+          loadForDate(tomorrowDateRef.current, setTomorrowState, false);
+        } else if (
+          tomorrowLoadStartedAt.current &&
+          Date.now() - tomorrowLoadStartedAt.current > 45000
+        ) {
+          // Was loading when app was backgrounded but iOS likely suspended it mid-request — retry
           loadForDate(tomorrowDateRef.current, setTomorrowState, false);
         }
       }
