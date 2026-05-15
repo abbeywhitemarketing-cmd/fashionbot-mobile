@@ -7,7 +7,7 @@ import { AppState, Image, TouchableOpacity } from "react-native";
 import Purchases from "react-native-purchases";
 import { PostHogProvider } from "posthog-react-native";
 import { posthog } from "./lib/analytics";
-import { registerBackgroundFetch, prefetchTomorrowOnBackground } from "./lib/backgroundFetch";
+import { registerBackgroundFetch, warmTomorrowOnBackground } from "./lib/backgroundFetch";
 import HomeScreen from "./screens/HomeScreen";
 import HistoryScreen from "./screens/HistoryScreen";
 import PaywallScreen from "./screens/PaywallScreen";
@@ -38,7 +38,7 @@ export default function App() {
 
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (appState.current === "active" && nextState.match(/inactive|background/)) {
-        prefetchTomorrowOnBackground();
+        warmTomorrowOnBackground(); // returns in <1s, server generates in background
       }
       appState.current = nextState;
     });
