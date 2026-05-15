@@ -503,6 +503,8 @@ export default function HomeScreen({ navigation }) {
   const appStateRef = useRef(AppState.currentState);
   const isInitialMount = useRef(true);
   const rcUserIdRef = useRef(null);
+  const tomorrowDateRef = useRef(tomorrowDate);
+  const tomorrowReadyRef = useRef(false);
 
   const [todayState, setTodayState] = useState(EMPTY_STATE);
   const [tomorrowState, setTomorrowState] = useState(EMPTY_STATE);
@@ -560,7 +562,13 @@ export default function HomeScreen({ navigation }) {
     }
   }, [todayDate]);
 
-  // Detect when app comes to foreground and check for day change
+  // Keep refs in sync so the AppState listener ([] deps) can always read current values
+  useEffect(() => { tomorrowDateRef.current = tomorrowDate; }, [tomorrowDate]);
+  useEffect(() => {
+    tomorrowReadyRef.current = !!(tomorrowState.outfit || tomorrowState.loading || tomorrowState.error);
+  }, [tomorrowState]);
+
+  // Detect when app comes to foreground: handle day rollover + recover missing tomorrow outfit
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (appStateRef.current.match(/inactive|background/) && nextState === "active") {
@@ -569,6 +577,9 @@ export default function HomeScreen({ navigation }) {
           lastKnownDate.current = newToday;
           setTodayDate(newToday);
           setTomorrowDate(tomorrow());
+        } else if (!tomorrowReadyRef.current) {
+          // Same day but tomorrow's outfit didn't load overnight — fetch it now
+          loadForDate(tomorrowDateRef.current, setTomorrowState, false);
         }
       }
       appStateRef.current = nextState;
