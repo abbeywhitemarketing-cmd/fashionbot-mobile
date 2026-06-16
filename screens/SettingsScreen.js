@@ -307,6 +307,11 @@ export default function SettingsScreen({ navigation }) {
           <Ionicons name="globe-outline" size={16} color="#aaa" />
           <Text style={styles.socialLinkText}>Website</Text>
         </TouchableOpacity>
+        <Text style={styles.socialDot}>·</Text>
+        <TouchableOpacity style={styles.socialLink} onPress={() => Linking.openURL("https://fashionbot.org/privacy.html")}>
+          <Ionicons name="shield-checkmark-outline" size={16} color="#aaa" />
+          <Text style={styles.socialLinkText}>Privacy Policy</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
