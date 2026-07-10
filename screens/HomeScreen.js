@@ -364,6 +364,13 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
         </View>
       )}
 
+      {/* Activity */}
+      {outfit.activity && (
+        <View style={styles.activityPill}>
+          <Text style={styles.activityText}>📅 {outfit.activity}</Text>
+        </View>
+      )}
+
       {/* Style Challenge */}
       {outfit.challenge && (
         <View style={styles.challengeBlock}>
@@ -383,13 +390,13 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
         </View>
       )}
 
-      {/* Shop carousel */}
-      <ShopCarousel
+      {/* Shop carousel — disabled while shop search is paused */}
+      {false && <ShopCarousel
         products={products}
         loading={!loading && !error && products === null}
         date={date}
         onSeeAll={() => { posthog.capture("shop_the_look_opened", { date }); setShopVisible(true); }}
-      />
+      />}
 
       {/* Looks */}
       <LookCard title="Primary Look" items={outfit.primaryLook} mood={outfit.primaryMood} formula={outfit.formula} />
@@ -469,12 +476,13 @@ function OutfitPage({ state, date, onRefresh, navigation }) {
         <Text style={styles.shareBtnText}>{sharing ? "Preparing..." : "Share Outfit ↗"}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity
+      {/* Shop button — disabled while shop search is paused */}
+      {false && <TouchableOpacity
         style={styles.shopBtn}
         onPress={() => { posthog.capture("shop_the_look_opened", { date }); setShopVisible(true); }}
       >
         <Text style={styles.shopBtnText}>Shop the Look</Text>
-      </TouchableOpacity>
+      </TouchableOpacity>}
 
       <TouchableOpacity style={styles.historyBtn} onPress={() => { posthog.capture("history_tapped"); navigation.navigate("History"); }}>
         <Text style={styles.historyBtnText}>See outfit history</Text>
@@ -633,7 +641,7 @@ export default function HomeScreen({ navigation }) {
           const cachedProducts = cached.products && Object.values(cached.products).some((a) => a.length > 0) ? cached.products : null;
           setState({ outfit: cached.outfit, weather: cached.weather, products: cachedProducts, loading: false, error: null, refreshing: false });
           posthog.capture("outfit_loaded", { source: "cache", date });
-          if (!cachedProducts) fetchProductsInBackground(cached.outfit, date, setState);
+          // if (!cachedProducts) fetchProductsInBackground(cached.outfit, date, setState); // paused
           return;
         }
       }
@@ -658,7 +666,7 @@ export default function HomeScreen({ navigation }) {
       setState({ outfit: parsed.outfit, weather: parsed.weather, products: null, loading: false, error: null, refreshing: false });
       await setCachedOutfit(date, parsed);
       posthog.capture(isRefresh ? "outfit_refreshed" : "outfit_loaded", { source: "fresh", date });
-      fetchProductsInBackground(parsed.outfit, date, setState);
+      // fetchProductsInBackground(parsed.outfit, date, setState); // paused
     } catch (e) {
       setState((prev) => ({ ...prev, loading: false, refreshing: false, error: e.message }));
       posthog.capture("outfit_load_error", { date, error: e.message });
@@ -772,6 +780,17 @@ const styles = StyleSheet.create({
   weatherIcon: { fontSize: 14 },
   weatherTemp: { fontSize: 13, fontWeight: "700", color: "#6B3A2A" },
   weatherDesc: { fontSize: 12, color: "#9B5A45" },
+
+  // Activity
+  activityPill: {
+    alignSelf: "flex-start",
+    backgroundColor: "#EEF0F8",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 16,
+  },
+  activityText: { fontSize: 12, fontWeight: "600", color: "#4A5080" },
 
   // Challenge
   challengeBlock: { marginBottom: 20 },

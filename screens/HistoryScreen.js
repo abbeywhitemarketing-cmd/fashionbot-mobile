@@ -152,9 +152,10 @@ function OutfitCard({ date, data }) {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity style={styles.shopBtn} onPress={() => setShopVisible(true)}>
+          {/* Shop button — disabled while shop search is paused */}
+          {false && <TouchableOpacity style={styles.shopBtn} onPress={() => setShopVisible(true)}>
             <Text style={styles.shopBtnText}>Shop the Look</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>}
         </View>
       )}
 
