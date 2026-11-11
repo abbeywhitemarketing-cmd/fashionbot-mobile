@@ -59,6 +59,52 @@ function DayPicker({ value, onChange }) {
   );
 }
 
+function WardrobeInput({ value, onChange }) {
+  const [text, setText] = useState("");
+  const items = Array.isArray(value) ? value : [];
+
+  function add() {
+    const trimmed = text.trim();
+    if (!trimmed || items.includes(trimmed)) return;
+    onChange([...items, trimmed]);
+    setText("");
+  }
+
+  function remove(item) {
+    onChange(items.filter((i) => i !== item));
+  }
+
+  return (
+    <View>
+      <View style={styles.wardrobeInputRow}>
+        <TextInput
+          style={[styles.input, styles.wardrobeTextInput]}
+          value={text}
+          onChangeText={setText}
+          onSubmitEditing={add}
+          placeholder="e.g. wide leg jeans"
+          placeholderTextColor="#bbb"
+          returnKeyType="done"
+          autoCapitalize="none"
+        />
+        <TouchableOpacity style={styles.wardrobeAddBtn} onPress={add}>
+          <Text style={styles.wardrobeAddText}>Add</Text>
+        </TouchableOpacity>
+      </View>
+      {items.length > 0 && (
+        <View style={styles.wardrobeChips}>
+          {items.map((item) => (
+            <TouchableOpacity key={item} style={styles.wardrobeChip} onPress={() => remove(item)}>
+              <Text style={styles.wardrobeChipText}>{item}</Text>
+              <Text style={styles.wardrobeChipX}>×</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 const DEFAULTS = {
   city: "Sydney, Australia",
   style_keywords: "",
@@ -66,6 +112,7 @@ const DEFAULTS = {
   weekend_activities: "",
   nights_out_days: "4,5",
   special_instructions: "",
+  wardrobe_items: [],
 };
 
 const TEXT_FIELDS = [
@@ -181,6 +228,17 @@ export default function SettingsScreen({ navigation }) {
       <View style={styles.field}>
         <Text style={styles.label}>Nights Out</Text>
         <DayPicker value={form.nights_out_days} onChange={(v) => update("nights_out_days", v)} />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>I Like to Wear</Text>
+        <Text style={styles.hint}>
+          Add garment types or silhouettes you gravitate toward — outfits will use these as natural building blocks.
+        </Text>
+        <WardrobeInput
+          value={form.wardrobe_items}
+          onChange={(v) => update("wardrobe_items", v)}
+        />
       </View>
 
       <View style={styles.field}>
@@ -419,6 +477,28 @@ const styles = StyleSheet.create({
   timeChipSelected: { backgroundColor: "#1a1a1a", borderColor: "#1a1a1a" },
   timeChipText: { fontSize: 13, fontWeight: "600", color: "#999" },
   timeChipTextSelected: { color: "#fff" },
+
+  wardrobeInputRow: { flexDirection: "row", gap: 8 },
+  wardrobeTextInput: { flex: 1 },
+  wardrobeAddBtn: {
+    backgroundColor: "#1a1a1a",
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    justifyContent: "center",
+  },
+  wardrobeAddText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  wardrobeChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  wardrobeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0ede9",
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  wardrobeChipText: { fontSize: 13, color: "#1a1a1a" },
+  wardrobeChipX: { fontSize: 16, color: "#999", lineHeight: 18 },
 
   socialRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 12, paddingBottom: 8 },
   socialLink: { flexDirection: "row", alignItems: "center", gap: 5 },

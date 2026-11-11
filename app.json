@@ -4,7 +4,7 @@
     "slug": "fashion-bot",
     "scheme": "fashionbot",
     "owner": "abbeywhite1996",
-    "version": "1.1.0",
+    "version": "1.1.4",
     "orientation": "portrait",
     "icon": "./assets/Logos/Logo Round.png",
     "userInterfaceStyle": "light",
@@ -19,8 +19,16 @@
       "buildNumber": "2",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["fetch"],
-        "LSApplicationQueriesSchemes": ["instagram", "instagram-stories"],
+        "UIBackgroundModes": [
+          "fetch",
+          "fetch"
+        ],
+        "LSApplicationQueriesSchemes": [
+          "instagram",
+          "instagram-stories",
+          "instagram",
+          "instagram-stories"
+        ],
         "NSPhotoLibraryUsageDescription": "Fashion Bot saves your outfit share card to Photos."
       }
     },
@@ -50,6 +58,12 @@
       "eas": {
         "projectId": "5a7c82f6-602a-4bf1-ab98-95d675d36b08"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/5a7c82f6-602a-4bf1-ab98-95d675d36b08"
     }
   }
 }

@@ -1,9 +1,11 @@
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { shareAsync } from "expo-sharing";
 let Share = null;
 try { Share = require("react-native-share").default; } catch {}
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import {
   ActivityIndicator,
@@ -79,6 +81,7 @@ function parsePreferences(form) {
     weekend_activities: form.weekend_activities,
     nights_out_days: form.nights_out_days.split(",").map((s) => parseInt(s.trim())),
     special_instructions: form.special_instructions || "",
+    wardrobe_items: form.wardrobe_items || [],
   };
 }
 
@@ -513,6 +516,7 @@ export default function HomeScreen({ navigation }) {
   const rcUserIdRef = useRef(null);
   const tomorrowDateRef = useRef(tomorrowDate);
   const tomorrowReadyRef = useRef(false);
+  const todayReadyRef = useRef(false);
   const tomorrowLoadStartedAt = useRef(null);
 
   const [todayState, setTodayState] = useState(EMPTY_STATE);
@@ -545,10 +549,8 @@ export default function HomeScreen({ navigation }) {
           await AsyncStorage.removeItem("preferences_updated");
           setTodayState({ ...EMPTY_STATE, loading: true });
           setTomorrowState({ ...EMPTY_STATE, loading: true });
-          await Promise.all([
-            loadForDate(todayDate, setTodayState, true),
-            loadForDate(tomorrowDate, setTomorrowState, true),
-          ]);
+          await loadForDate(todayDate, setTodayState, true);
+          await loadForDate(tomorrowDate, setTomorrowState, true);
         }
       }
       checkPrefsUpdated();
@@ -581,6 +583,7 @@ export default function HomeScreen({ navigation }) {
     }
     tomorrowReadyRef.current = !!(tomorrowState.outfit || tomorrowState.loading || tomorrowState.error);
   }, [tomorrowState]);
+  useEffect(() => { todayReadyRef.current = !!(todayState.outfit || todayState.error); }, [todayState]);
 
   // Detect when app comes to foreground: handle day rollover + recover missing tomorrow outfit
   useEffect(() => {
@@ -591,8 +594,9 @@ export default function HomeScreen({ navigation }) {
           lastKnownDate.current = newToday;
           setTodayDate(newToday);
           setTomorrowDate(tomorrow());
-        } else if (!tomorrowReadyRef.current) {
+        } else if (!tomorrowReadyRef.current && todayReadyRef.current) {
           // Same day but tomorrow's outfit didn't load overnight — fetch it now
+          // Guard: only fetch tomorrow once today is fully loaded, so today is in recent_outfits
           loadForDate(tomorrowDateRef.current, setTomorrowState, false);
         } else if (
           tomorrowLoadStartedAt.current &&
@@ -655,11 +659,19 @@ export default function HomeScreen({ navigation }) {
       const prefs = parsePreferences(JSON.parse(raw));
       const token = await getValidAccessToken();
       const calendarEvents = token ? await fetchEventsForDate(token, date).catch(() => []) : [];
-      // First pull-to-refresh of the day bypasses server cache; subsequent ones get the updated cached version
+      // Allow up to 2 force-refreshes per day
       const refreshKey = `outfit_refreshed_${date}`;
-      const alreadyRefreshed = isRefresh ? await AsyncStorage.getItem(refreshKey) : null;
-      const forceRefresh = isRefresh && !alreadyRefreshed;
-      if (forceRefresh) await AsyncStorage.setItem(refreshKey, "1");
+      const refreshCountStr = isRefresh ? await AsyncStorage.getItem(refreshKey) : null;
+      const refreshCount = refreshCountStr ? parseInt(refreshCountStr) : 0;
+
+      if (isRefresh && refreshCount >= 2) {
+        setState((prev) => ({ ...prev, refreshing: false }));
+        Alert.alert("No more refreshes today", "You've used both outfit refreshes for today. Come back tomorrow!");
+        return;
+      }
+
+      const forceRefresh = isRefresh && refreshCount < 2;
+      if (forceRefresh) await AsyncStorage.setItem(refreshKey, String(refreshCount + 1));
       const data = await fetchOutfit(date, prefs, calendarEvents, rcUserIdRef.current, forceRefresh);
       const parsed = { outfit: parseOutfit(data.suggestions), weather: data.weather };
 
@@ -678,8 +690,22 @@ export default function HomeScreen({ navigation }) {
     setCurrentPage(page);
   }
 
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.container}>
+      {/* Custom header — avoids iOS 26 native nav bar button styling */}
+      <View style={[styles.customHeader, { paddingTop: insets.top }]}>
+        <Image
+          source={require("../assets/Logos/Transparent Logos/Inline header FB Txt.png")}
+          style={{ height: 32, width: 200 }}
+          resizeMode="contain"
+        />
+        <TouchableOpacity onPress={() => navigation.navigate("Settings")} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Ionicons name="settings-outline" size={22} color="#1a1a1a" />
+        </TouchableOpacity>
+      </View>
+
       {/* Tab bar */}
       <View style={styles.tabBar}>
         <TouchableOpacity style={styles.tab} onPress={() => goToPage(0)}>
@@ -728,6 +754,14 @@ export default function HomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FAF8F5" },
+  customHeader: {
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
 
   // Tab bar
   tabBar: {
